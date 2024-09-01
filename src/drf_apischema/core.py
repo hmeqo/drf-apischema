@@ -137,8 +137,6 @@ def _sql_logger(method: WrappedMethod):
 
 
 def _excpetion_catcher(method: WrappedMethod):
-    is_method = inspect.ismethod(method)
-
     def exception_handler(event: ProcessEvent):
         try:
             response = method(event)
@@ -156,7 +154,7 @@ def _excpetion_catcher(method: WrappedMethod):
         return response
 
     def default_handler(*args, **kwds):
-        if is_method:
+        if hasattr(args[0], "request"):
             request, view = args[1], args[0]
         else:
             request, view = args[0], None
