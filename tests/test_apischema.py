@@ -1,6 +1,7 @@
 from django.test import override_settings
 from django.urls import include, path
 from rest_framework import serializers
+from rest_framework.decorators import api_view
 from rest_framework.routers import DefaultRouter
 from rest_framework.test import APITestCase
 from rest_framework.viewsets import ViewSet
@@ -22,6 +23,7 @@ class AViewSet(ViewSet):
         return [1, 2, 3]
 
 
+@api_view(["GET"])
 @apischema(query=BQuery, transaction=False)
 def b_view(request, data: dict):
     n: int = data["n"]
