@@ -1,13 +1,14 @@
 [project]
 name = "drf-apischema"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.2"
+description = ""
 authors = []
 dependencies = [
-    "django>=5.1",
-    "drf-yasg>=1.21.7",
-    "django-restframework>=0.0.1",
-    "rich>=13.7.1",
+    "setuptools>=74.0.0",
+    "django",
+    "drf-yasg",
+    "django-restframework",
+    "rich",
 ]
 readme = "README.md"
 requires-python = ">= 3.10"
