@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import inspect
 import traceback
@@ -9,7 +11,7 @@ from django.db import connection, models
 from django.db import transaction as _transaction
 from django.http import Http404
 from django.http.request import HttpRequest
-from django.http.response import HttpResponse, HttpResponseBase, JsonResponse
+from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
@@ -135,6 +137,8 @@ def _sql_logger(method: WrappedMethod):
 
 
 def _excpetion_catcher(method: WrappedMethod):
+    is_method = inspect.ismethod(method)
+
     def exception_handler(event: ProcessEvent):
         try:
             response = method(event)
@@ -151,45 +155,28 @@ def _excpetion_catcher(method: WrappedMethod):
             raise exc
         return response
 
-    if inspect.ismethod(method):
-
-        def default_handler(*args, **kwds):
+    def default_handler(*args, **kwds):
+        if is_method:
             request, view = args[1], args[0]
-            event = ProcessEvent(request=request, view=view, args=args, kwargs=kwds)
-            return exception_handler(event)
-    else:
-
-        def default_handler(*args, **kwds):
-            event = ProcessEvent(request=args[0], view=None, args=args, kwargs=kwds)
-            return exception_handler(event)
+        else:
+            request, view = args[0], None
+        event = ProcessEvent(request=request, view=view, args=args, kwargs=kwds)
+        return exception_handler(event)
 
     default_handler.__name__ = method.__name__
     return default_handler
 
 
 def _response_processor(method: ApiMethod):
-    if inspect.ismethod(method):
-
-        def wrapper(event: ProcessEvent) -> HttpResponseBase:
-            response = method(*event.args, **event.kwargs)
-            if response is None:
-                response = Response(status=status.HTTP_204_NO_CONTENT)
-            elif isinstance(response, HttpResponseBase):
-                response = response
-            else:
-                response = Response(response)
-            return response
-    else:
-
-        def wrapper(event: ProcessEvent) -> HttpResponseBase:
-            response = method(*event.args, **event.kwargs)
-            if response is None:
-                response = HttpResponse(status=status.HTTP_204_NO_CONTENT)
-            elif isinstance(response, HttpResponseBase):
-                response = response
-            else:
-                response = JsonResponse(response, safe=False)
-            return response
+    def wrapper(event: ProcessEvent) -> HttpResponseBase:
+        response = method(*event.args, **event.kwargs)
+        if response is None:
+            response = Response(status=status.HTTP_204_NO_CONTENT)
+        elif isinstance(response, HttpResponseBase):
+            response = response
+        else:
+            response = Response(response)
+        return response
 
     wrapper.__name__ = method.__name__
     return wrapper
