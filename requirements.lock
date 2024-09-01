@@ -38,6 +38,8 @@ pyyaml==6.0.2
     # via drf-yasg
 rich==13.7.1
     # via drf-apischema
+setuptools==74.0.0
+    # via drf-apischema
 sqlparse==0.5.1
     # via django
 uritemplate==4.1.1
