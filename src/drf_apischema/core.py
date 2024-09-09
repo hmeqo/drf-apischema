@@ -27,6 +27,7 @@ Field = type[serializers.Field] | serializers.Field
 JsonValue = Mapping | Iterable | float | int | bool
 ApiMethod = Callable[..., HttpResponseBase | JsonValue | None]
 WrappedMethod = Callable[["ProcessEvent"], HttpResponseBase]
+SwaggerResponse = openapi.Response | Serializer | Field
 
 
 @dataclass
@@ -76,7 +77,8 @@ def apischema(
     permissions: Iterable[type[BasePermission]] | None = None,
     query: Serializer | None = None,
     body: Serializer | None = None,
-    response: openapi.Response | Serializer | Field | None = None,
+    response: SwaggerResponse | None = None,
+    responses: dict[int, SwaggerResponse] | None = None,
     description: str | None = None,
     tags: Sequence[str] | None = None,
     transaction: bool | None = None,
@@ -87,7 +89,8 @@ def apischema(
         permissions (Iterable[type[BasePermission]] | None, optional): Permissions required to access the endpoint.
         query (Serializer | None, optional): Serializer for query parameters.
         body (Serializer | None, optional): Serializer for request body.
-        response (openapi.Response | Serializer | Field | None, optional): OpenAPI schema for the response.
+        response (SwaggerResponse | None, optional): OpenAPI schema for the response.
+        responses (dict[int, SwaggerResponse] | None, optional): OpenAPI schema for the response.
         description (str | None, optional): Description of the endpoint.
         tags (Sequence[str] | None, optional): Tags for the endpoint.
         transaction (bool, optional): Whether to wrap the method in a transaction.
@@ -114,6 +117,7 @@ def apischema(
             query=query,
             body=body,
             response=response,
+            responses=responses,
             tags=method.__qualname__.split(".")[:1] if tags is None else tags,
             deprecated=deprecated,
         )(wrapper)
@@ -248,25 +252,29 @@ class Response422Serializer(serializers.Serializer):
 def swagger_schema(
     query: Serializer | None = None,
     body: Serializer | None = None,
-    response: openapi.Response | Serializer | Field | None = None,
+    response: SwaggerResponse | None = None,
+    responses: dict[int, SwaggerResponse] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: Sequence[str] | None = None,
     deprecated: bool | None = None,
 ):
-    if response is None:
-        response = openapi.Response("No Response.")
-    elif inspect.isclass(response):
+    if response is not None and inspect.isclass(response):
         response = response()
+
+    responses = responses or {}
+    if response is None:
+        responses.setdefault(status.HTTP_204_NO_CONTENT, openapi.Response(""))
+    else:
+        responses.setdefault(status.HTTP_200_OK, response)
+    if query or body:
+        responses.setdefault(status.HTTP_422_UNPROCESSABLE_ENTITY, Response422Serializer())
+    responses = dict(sorted(responses.items(), key=lambda x: x[0]))
 
     return swagger_auto_schema(
         query_serializer=query,
         request_body=body,
-        responses={
-            200: response,
-            400: openapi.Response(description="Bad Request"),
-            422: Response422Serializer(),
-        },
+        responses=responses,
         operation_summary=summary,
         operation_description=description,
         tags=tags,
