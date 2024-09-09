@@ -1,8 +1,10 @@
 [project]
 name = "drf-apischema"
-version = "0.1.4"
+version = "0.1.8"
 description = ""
 authors = []
+readme = "README.md"
+requires-python = ">= 3.10"
 dependencies = [
     "setuptools>=74.0.0",
     "django",
@@ -10,19 +12,10 @@ dependencies = [
     "django-restframework",
     "rich",
 ]
-readme = "README.md"
-requires-python = ">= 3.10"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.rye]
-managed = true
-dev-dependencies = []
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/drf_apischema"]

@@ -1,0 +1,31 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-09-09 10:40+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/drf_apischema/core/__init__.py:58 src/drf_apischema/core/__init__.py:66
+# Django
+msgid "Not found."
+msgstr ""
+
+#: src/drf_apischema/core/__init__.py:155
+msgid "Server error."
+msgstr "服务器错误."
+
+#: src/drf_apischema/core/__init__.py:241
+msgid "You do not have permission to perform this action."
+msgstr "您没有执行此操作的权限。"
