@@ -137,7 +137,7 @@ def _sql_logger(method: WrappedMethod):
         response = method(event)
         for query in connection.queries:
             sql = sqlparse.format(query["sql"], reindent=True).strip()
-            rprint(f"SQL: Time: {query['time']}", Padding(sql, (0, 0, 0, 4)), sep="\n")
+            rprint(f"SQL: Time: {query['time']}", Padding(sql, (0, 0, 0, 4)), sep="\n", flush=True)
         return response
 
     wrapper.__name__ = method.__name__
