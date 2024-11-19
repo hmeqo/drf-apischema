@@ -7,6 +7,7 @@ from rest_framework.test import APITestCase
 from rest_framework.viewsets import ViewSet
 
 from drf_apischema import apischema
+from drf_apischema.utils import api_path
 
 
 class AOut(serializers.ListSerializer):
@@ -35,21 +36,26 @@ router.register("a", AViewSet, basename="a")
 
 
 urlpatterns = [
-    path("", include(router.urls)),
-    path("b/", b_view),
+    api_path(
+        "api/",
+        [
+            path("", include(router.urls)),
+            path("b/", b_view),
+        ],
+    )
 ]
 
 
 @override_settings(ROOT_URLCONF="tests.test_apischema")
 class TestApiSchema(APITestCase):
     def test_a(self):
-        response = self.client.get("/a/")
+        response = self.client.get("/api/a/")
         self.assertEqual(response.json(), [1, 2, 3])
 
     def test_b(self):
-        response = self.client.get("/b/?n=5")
+        response = self.client.get("/api/b/?n=5")
         self.assertEqual(response.json(), 25)
 
     def test_b_default(self):
-        response = self.client.get("/b/")
+        response = self.client.get("/api/b/")
         self.assertEqual(response.json(), 4)

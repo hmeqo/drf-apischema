@@ -82,6 +82,7 @@ def apischema(
     description: str | None = None,
     tags: Sequence[str] | None = None,
     transaction: bool | None = None,
+    sqllogger: bool | None = None,
     deprecated: bool = False,
 ) -> Callable[[ApiMethod], Callable[..., HttpResponseBase]]:
     """
@@ -94,6 +95,7 @@ def apischema(
         description (str | None, optional): Description of the endpoint.
         tags (Sequence[str] | None, optional): Tags for the endpoint.
         transaction (bool, optional): Whether to wrap the method in a transaction.
+        sqllogger (bool, optional): Whether to log SQL queries.
         deprecated (bool, optional): Whether the endpoint is deprecated.
 
     Returns:
@@ -106,7 +108,7 @@ def apischema(
             wrapper = _serializer_processor(wrapper, method, query, body)
         if apisettings.transaction(transaction):
             wrapper = _transaction.atomic(wrapper)
-        if settings.DEBUG:
+        if apisettings.sqllogger(sqllogger) and settings.DEBUG:
             wrapper = _sql_logger(wrapper)
         if permissions:
             wrapper = _permission_processor(wrapper, permissions)
@@ -128,12 +130,14 @@ def apischema(
 
 def _sql_logger(method: WrappedMethod):
     def wrapper(event: ProcessEvent):
-        from rich import get_console
+        import sqlparse
+        from rich import print as rprint
+        from rich.padding import Padding
 
-        console = get_console()
         response = method(event)
         for query in connection.queries:
-            console.log("sql: {sql}\ntime: {time}\n".format(**query))
+            sql = sqlparse.format(query["sql"], reindent=True).strip()
+            rprint(f"SQL: Time: {query['time']}", Padding(sql, (0, 0, 0, 4)), sep="\n")
         return response
 
     wrapper.__name__ = method.__name__

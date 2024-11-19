@@ -1,3 +1,7 @@
+## What is it
+
+API schema generator and validator for Django REST framework.
+
 ## Usage
 
 ```python
@@ -7,7 +11,8 @@ from rest_framework.decorators import api_view
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import ViewSet
 
-from drf_apischema import apischema
+from drf_apischema import apischem
+from drf_apischema.utils import api_patha
 
 
 class AOut(serializers.ListSerializer):
@@ -37,7 +42,12 @@ router.register("a", AViewSet, basename="a")
 
 
 urlpatterns = [
-    path("", include(router.urls)),
-    path("b/", b_view),
+    api_path(
+        "api/",
+        [
+            path("", include(router.urls)),
+            path("b/", b_view),
+        ],
+    )
 ]
 ```
