@@ -51,3 +51,16 @@ urlpatterns = [
     )
 ]
 ```
+
+## settings
+
+```python
+# settings.py
+
+# wrap method in a transaction
+DRF_APISCHEMA_TRANSACTION = True
+
+# log SQL queries in debug mode
+DRF_APISCHEMA_SQLLOGGER = True
+DRF_APISCHEMA_SQLLOGGER_REINDENT = True
+```
