@@ -135,9 +135,12 @@ def _sql_logger(method: WrappedMethod):
         from rich.padding import Padding
 
         response = method(event)
+        cache = []
         for query in connection.queries:
-            sql = sqlparse.format(query["sql"], reindent=True).strip()
-            rprint(f"SQL: Time: {query['time']}", Padding(sql, (0, 0, 0, 4)), sep="\n", flush=True)
+            sql = sqlparse.format(query["sql"], reindent=apisettings.sqllogger_reindent()).strip()
+            cache.append(f"SQL: Time: {query['time']}")
+            cache.append(Padding(sql, (0, 0, 0, 4)))
+        rprint(*cache)
         return response
 
     wrapper.__name__ = method.__name__
