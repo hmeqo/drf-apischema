@@ -1,56 +1,48 @@
-from typing import Any
+import inspect
 
-from django.urls import include, path, re_path
 from drf_yasg import openapi
-from drf_yasg.views import get_schema_view
-from rest_framework.permissions import IsAdminUser
+from rest_framework import serializers
+from rest_framework.pagination import BasePagination
+
+field_openapi_map: dict[type, str] = {
+    serializers.UUIDField: openapi.TYPE_STRING,
+    serializers.IntegerField: openapi.TYPE_INTEGER,
+    serializers.CharField: openapi.TYPE_STRING,
+    serializers.BooleanField: openapi.TYPE_BOOLEAN,
+    serializers.DateTimeField: openapi.TYPE_STRING,
+    serializers.ListField: openapi.TYPE_ARRAY,
+    serializers.DictField: openapi.TYPE_OBJECT,
+}
 
 
-def doc_path(urls: Any, title="API", version="v1", pattern_prefix=""):
-    schema_view = get_schema_view(
-        openapi.Info(
-            title=title,
-            default_version=version,
-            # description='',
-            # terms_of_service='https://www.google.com/policies/terms/',
-            # contact=openapi.Contact(email='contact@snippets.local'),
-            # license=openapi.License(name='BSD License'),
+def serializer_field_to_schema(field: serializers.Field):
+    schema_type = field_openapi_map.get(type(field))
+    if not schema_type:
+        raise Exception(f"Unsupported field type: {type(field)}")
+    schema = openapi.Schema(type=schema_type)
+    schema.default = field.default
+    schema.description = field.help_text
+    return schema
+
+
+def pagination_response_schema(
+    pagination_class: type[BasePagination],
+    serializer: serializers.Serializer | type[serializers.Serializer],
+    description: str = "",
+    **kwargs,
+):
+    if inspect.isclass(serializer):
+        serializer = serializer()
+    properties = dict((name, serializer_field_to_schema(field)) for name, field in serializer.get_fields().items())
+    return openapi.Response(
+        **kwargs,
+        description=description,
+        schema=openapi.Schema(
+            **pagination_class().get_paginated_response_schema(
+                openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_OBJECT, properties=properties),
+                )
+            )
         ),
-        public=False,
-        permission_classes=[IsAdminUser],
-        patterns=[re_path(pattern_prefix, include(urls))],
-    )
-
-    return list_path(
-        pattern_prefix,
-        [
-            re_path(r"^swagger(?P<format>\.json|\.yaml)$", schema_view.without_ui(cache_timeout=0), name="schema-json"),
-            re_path(r"^swagger/$", schema_view.with_ui("swagger", cache_timeout=0), name="schema-swagger-ui"),
-            re_path(r"^redoc/$", schema_view.with_ui("redoc", cache_timeout=0), name="schema-redoc"),
-        ],
-    )
-
-
-def _urls_module_like(urls: Any):
-    if hasattr(urls, "urlpatterns"):
-        return urls
-
-    class Urls:
-        urlpatterns = urls
-
-    return Urls
-
-
-def list_path(preffix: str, urlpatterns: Any):
-    return path(preffix, include(_urls_module_like(urlpatterns)))
-
-
-def api_path(pattern_prefix: str, urlpatterns: Any, version=""):
-    urls = _urls_module_like(urlpatterns)
-    return list_path(
-        "",
-        [
-            doc_path(urls, pattern_prefix=pattern_prefix, version=version),
-            re_path(pattern_prefix, include(urls)),
-        ],
     )

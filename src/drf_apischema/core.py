@@ -14,6 +14,8 @@ from django.http.request import HttpRequest
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
 from drf_yasg import openapi
+from drf_yasg.inspectors import BaseInspector
+from rest_framework.pagination import BasePagination
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -84,6 +86,8 @@ def apischema(
     transaction: bool | None = None,
     sqllogger: bool | None = None,
     deprecated: bool = False,
+    pagination_class: type[BasePagination] | None = None,
+    paginator_inspectors: Sequence[type[BaseInspector]] | None = None,
 ) -> Callable[[ApiMethod], Callable[..., HttpResponseBase]]:
     """
     Args:
@@ -122,6 +126,8 @@ def apischema(
             responses=responses,
             tags=method.__qualname__.split(".")[:1] if tags is None else tags,
             deprecated=deprecated,
+            pagination_class=pagination_class,
+            paginator_inspectors=paginator_inspectors,
         )(wrapper)
         return wrapper
 
@@ -244,7 +250,7 @@ def _permission_processor(
 
     def wrapper(event: ProcessEvent):
         for permission in __permissions:
-            if permission.has_permission(event.request, event.view):
+            if permission.has_permission(event.request, event.view):  # type: ignore
                 return method(event)
         raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
 
@@ -265,6 +271,8 @@ def swagger_schema(
     description: str | None = None,
     tags: Sequence[str] | None = None,
     deprecated: bool | None = None,
+    pagination_class: type[BasePagination] | None = None,
+    paginator_inspectors: Sequence[type[BaseInspector]] | None = None,
 ):
     if response is not None and inspect.isclass(response):
         response = response()
@@ -286,4 +294,6 @@ def swagger_schema(
         operation_description=description,
         tags=tags,
         deprecated=deprecated,
+        pagination_class=pagination_class,
+        paginator_inspectors=paginator_inspectors,
     )
