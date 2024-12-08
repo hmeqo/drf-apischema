@@ -1,8 +1,5 @@
-import inspect
-
 from drf_yasg import openapi
 from rest_framework import serializers
-from rest_framework.pagination import BasePagination
 
 field_openapi_map: dict[type, str] = {
     serializers.UUIDField: openapi.TYPE_STRING,
@@ -23,26 +20,3 @@ def serializer_field_to_schema(field: serializers.Field):
     schema.default = field.default
     schema.description = field.help_text
     return schema
-
-
-def pagination_response_schema(
-    pagination_class: type[BasePagination],
-    serializer: serializers.Serializer | type[serializers.Serializer],
-    description: str = "",
-    **kwargs,
-):
-    if inspect.isclass(serializer):
-        serializer = serializer()
-    properties = dict((name, serializer_field_to_schema(field)) for name, field in serializer.get_fields().items())
-    return openapi.Response(
-        **kwargs,
-        description=description,
-        schema=openapi.Schema(
-            **pagination_class().get_paginated_response_schema(
-                openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_OBJECT, properties=properties),
-                )
-            )
-        ),
-    )

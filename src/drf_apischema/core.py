@@ -14,14 +14,15 @@ from django.http.request import HttpRequest
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
 from drf_yasg import openapi
-from drf_yasg.inspectors import BaseInspector
-from rest_framework.pagination import BasePagination
+from drf_yasg.inspectors import PaginatorInspector, ViewInspector
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import BasePagination
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
+from .inspectors import AutoSchema
 from .settings import apisettings
 
 Serializer = type[serializers.BaseSerializer] | serializers.BaseSerializer
@@ -87,7 +88,8 @@ def apischema(
     sqllogger: bool | None = None,
     deprecated: bool = False,
     pagination_class: type[BasePagination] | None = None,
-    paginator_inspectors: Sequence[type[BaseInspector]] | None = None,
+    paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
+    auto_schema: type[ViewInspector] | None = None,
 ) -> Callable[[ApiMethod], Callable[..., HttpResponseBase]]:
     """
     Args:
@@ -101,6 +103,9 @@ def apischema(
         transaction (bool, optional): Whether to wrap the method in a transaction.
         sqllogger (bool, optional): Whether to log SQL queries.
         deprecated (bool, optional): Whether the endpoint is deprecated.
+        pagination_class (type[BasePagination] | None, optional): Pagination class for the endpoint.
+        paginator_inspectors (Sequence[type[PaginatorInspector]] | None, optional): Paginator inspectors for the endpoint.
+        auto_schema (type[ViewInspector] | None, optional): AutoSchema class for the endpoint.
 
     Returns:
         Callable[[ApiMethod], Callable[..., HttpResponseBase]]: The decorated method.
@@ -128,6 +133,7 @@ def apischema(
             deprecated=deprecated,
             pagination_class=pagination_class,
             paginator_inspectors=paginator_inspectors,
+            auto_schema=auto_schema,
         )(wrapper)
         return wrapper
 
@@ -272,7 +278,8 @@ def swagger_schema(
     tags: Sequence[str] | None = None,
     deprecated: bool | None = None,
     pagination_class: type[BasePagination] | None = None,
-    paginator_inspectors: Sequence[type[BaseInspector]] | None = None,
+    paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
+    auto_schema: type[ViewInspector] | None = None,
 ):
     if response is not None and inspect.isclass(response):
         response = response()
@@ -296,4 +303,5 @@ def swagger_schema(
         deprecated=deprecated,
         pagination_class=pagination_class,
         paginator_inspectors=paginator_inspectors,
+        **{"auto_schema": AutoSchema} if apisettings.override_swagger_auto_schema(auto_schema is not None) else {},  # type: ignore
     )

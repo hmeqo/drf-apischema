@@ -1,6 +1,6 @@
 [project]
 name = "drf-apischema"
-version = "0.1.11"
+version = "0.1.13"
 description = "API schema generator and validator for Django REST framework"
 authors = []
 readme = "README.md"
