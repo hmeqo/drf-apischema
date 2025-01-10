@@ -22,17 +22,17 @@ class ApiSettings:
     def sqllogger(self, override: bool | None = None) -> bool:
         if override is not None:
             return override
-        return getattr(settings, "SQL_LOGGER", True)
+        return getattr(self.settings, "SQL_LOGGER", True)
 
     def sqllogger_reindent(self, override: bool | None = None) -> bool:
         if override is not None:
             return override
-        return getattr(settings, "SQL_LOGGER_REINDENT", True)
+        return getattr(self.settings, "SQL_LOGGER_REINDENT", True)
 
     def override_swagger_auto_schema(self, override: bool | None = None) -> bool:
         if override is not None:
             return override
-        return getattr(settings, "OVERRIDE_SWAGGER_AUTO_SCHEMA", True)
+        return getattr(self.settings, "OVERRIDE_SWAGGER_AUTO_SCHEMA", True)
 
 
 apisettings = ApiSettings()

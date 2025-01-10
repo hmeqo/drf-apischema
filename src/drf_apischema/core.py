@@ -1,6 +1,24 @@
 from __future__ import annotations
 
-import copy
+import sys
+
+from drf_apischema.response import StatusResponse
+
+__all__ = [
+    "apischema",
+    "get_object_or_422",
+    "check_exists",
+    "is_accept_json",
+    "Response422Serializer",
+    "swagger_schema",
+    "Serializer",
+    "JsonValue",
+    "ApiMethod",
+    "WrappedMethod",
+    "SwaggerResponse",
+    "ProcessEvent",
+]
+
 import inspect
 import traceback
 from dataclasses import dataclass
@@ -9,8 +27,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from django.conf import settings
 from django.db import connection, models
 from django.db import transaction as _transaction
-from django.http import Http404
-from django.http.request import HttpRequest
+from django.http import Http404, HttpRequest
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
 from drf_yasg import openapi
@@ -23,22 +40,37 @@ from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from .inspectors import AutoSchema
+from .request import ASRequest
 from .settings import apisettings
 
 Serializer = type[serializers.BaseSerializer] | serializers.BaseSerializer
-Field = type[serializers.Field] | serializers.Field
 JsonValue = Mapping | Iterable | float | int | bool
 ApiMethod = Callable[..., HttpResponseBase | JsonValue | None]
 WrappedMethod = Callable[["ProcessEvent"], HttpResponseBase]
-SwaggerResponse = openapi.Response | Serializer | Field
+SwaggerResponse = openapi.Response | Serializer
 
 
 @dataclass
 class ProcessEvent:
-    request: HttpRequest
+    request: ASRequest
     view: Callable | None
     args: tuple
     kwargs: dict
+
+    def get_object(self):
+        return self.view.get_object() if self.detail else None  # type: ignore
+
+    @property
+    def query_data(self):
+        return self.request.GET
+
+    @property
+    def body_data(self):
+        return self.request.data
+
+    @property
+    def detail(self) -> bool:
+        return self.view.detail if self.view else False
 
 
 class HttpError(Exception):
@@ -80,12 +112,12 @@ def apischema(
     permissions: Iterable[type[BasePermission]] | None = None,
     query: Serializer | None = None,
     body: Serializer | None = None,
-    response: SwaggerResponse | None = None,
-    responses: dict[int, SwaggerResponse] | None = None,
-    description: str | None = None,
+    response: SwaggerResponse | StatusResponse | None = None,
+    responses: dict[int, SwaggerResponse | Any] | None = None,
     tags: Sequence[str] | None = None,
     transaction: bool | None = None,
     sqllogger: bool | None = None,
+    sqllogger_callback: Callable[[Any], None] | None = None,
     deprecated: bool = False,
     pagination_class: type[BasePagination] | None = None,
     paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
@@ -96,12 +128,12 @@ def apischema(
         permissions (Iterable[type[BasePermission]] | None, optional): Permissions required to access the endpoint.
         query (Serializer | None, optional): Serializer for query parameters.
         body (Serializer | None, optional): Serializer for request body.
-        response (SwaggerResponse | None, optional): OpenAPI schema for the response.
+        response (SwaggerResponse | StatusResponse | None, optional): OpenAPI schema for the response.
         responses (dict[int, SwaggerResponse] | None, optional): OpenAPI schema for the response.
-        description (str | None, optional): Description of the endpoint.
         tags (Sequence[str] | None, optional): Tags for the endpoint.
         transaction (bool, optional): Whether to wrap the method in a transaction.
         sqllogger (bool, optional): Whether to log SQL queries.
+        sqllogger_callback (Callable[[Any], None] | None, optional): Callback for SQL queries.
         deprecated (bool, optional): Whether the endpoint is deprecated.
         pagination_class (type[BasePagination] | None, optional): Pagination class for the endpoint.
         paginator_inspectors (Sequence[type[PaginatorInspector]] | None, optional): Paginator inspectors for the endpoint.
@@ -114,22 +146,22 @@ def apischema(
     def decorator(method: ApiMethod) -> Callable[..., HttpResponseBase]:
         wrapper = _response_processor(method)
         if query or body:
-            wrapper = _serializer_processor(wrapper, method, query, body)
+            wrapper = _serializer_processor(wrapper, query, body)
         if apisettings.transaction(transaction):
             wrapper = _transaction.atomic(wrapper)
         if apisettings.sqllogger(sqllogger) and settings.DEBUG:
-            wrapper = _sql_logger(wrapper)
+            wrapper = _sql_logger(wrapper, sqllogger_callback)
         if permissions:
             wrapper = _permission_processor(wrapper, permissions)
         wrapper = _excpetion_catcher(wrapper)
         wrapper = swagger_schema(
-            summary=method.__doc__,
-            description=description or "",
+            method=method,
+            permissions=permissions,
             query=query,
             body=body,
             response=response,
             responses=responses,
-            tags=method.__qualname__.split(".")[:1] if tags is None else tags,
+            tags=tags,
             deprecated=deprecated,
             pagination_class=pagination_class,
             paginator_inspectors=paginator_inspectors,
@@ -140,7 +172,7 @@ def apischema(
     return decorator
 
 
-def _sql_logger(method: WrappedMethod):
+def _sql_logger(method: WrappedMethod, callback: Callable[[Any], None] | None = None):
     def wrapper(event: ProcessEvent):
         import sqlparse
         from rich import print as rprint
@@ -149,9 +181,11 @@ def _sql_logger(method: WrappedMethod):
         response = method(event)
         cache = []
         for query in connection.queries:
+            if callback is not None:
+                callback(query)
             sql = sqlparse.format(query["sql"], reindent=apisettings.sqllogger_reindent()).strip()
-            cache.append(f"SQL: Time: {query['time']}")
-            cache.append(Padding(sql, (0, 0, 0, 4)))
+            cache.append(f"[SQL] Time: {query['time']}")
+            cache.append(Padding(sql, (0, 0, 0, 2)))
         rprint(*cache)
         return response
 
@@ -205,43 +239,40 @@ def _response_processor(method: ApiMethod):
 
 def _serializer_processor(
     method: WrappedMethod,
-    o_method: Callable[..., Any],
     query: Serializer | None = None,
     body: Serializer | None = None,
 ):
-    need_serializer = "serializer" in o_method.__annotations__
-    need_data = "data" in o_method.__annotations__
     if query:
 
-        def get_serializer(request):
+        def get_serializer(event: ProcessEvent):
             if isinstance(query, serializers.BaseSerializer):
-                serializer = copy.deepcopy(query)
-                serializer.initial_data = request.GET
+                serializer = query
+                serializer.instance = event.get_object()
+                serializer.initial_data = event.query_data
             else:
-                serializer = query(data=request.GET)
+                serializer = query(instance=event.get_object(), data=event.query_data)
             return serializer
 
     elif body:
 
-        def get_serializer(request):
+        def get_serializer(event: ProcessEvent):
             if isinstance(body, serializers.BaseSerializer):
-                serializer = copy.deepcopy(body)
-                serializer.initial_data = request.data
+                serializer = body
+                serializer.instance = event.get_object()
+                serializer.initial_data = event.body_data
             else:
-                serializer = body(data=request.data)
+                serializer = body(instance=event.get_object(), data=event.body_data)
             return serializer
 
     else:
         raise ValueError("query or body is required")
 
     def wrapper(event: ProcessEvent):
-        serializer = get_serializer(event.request)
+        serializer = get_serializer(event)
         serializer.is_valid(raise_exception=True)
 
-        if need_serializer:
-            event.kwargs["serializer"] = serializer
-        if need_data:
-            event.kwargs["data"] = serializer.validated_data
+        event.request.serializer = serializer
+        event.request.validated_data = serializer.validated_data
         return method(event)
 
     wrapper.__name__ = method.__name__
@@ -269,12 +300,13 @@ class Response422Serializer(serializers.Serializer):
 
 
 def swagger_schema(
+    method: ApiMethod,
+    permissions: Iterable[type[BasePermission]] | None = None,
     query: Serializer | None = None,
     body: Serializer | None = None,
-    response: SwaggerResponse | None = None,
+    response: SwaggerResponse | StatusResponse | None = None,
     responses: dict[int, SwaggerResponse] | None = None,
     summary: str | None = None,
-    description: str | None = None,
     tags: Sequence[str] | None = None,
     deprecated: bool | None = None,
     pagination_class: type[BasePagination] | None = None,
@@ -285,21 +317,36 @@ def swagger_schema(
         response = response()
 
     responses = responses or {}
-    if response is None:
-        responses.setdefault(status.HTTP_204_NO_CONTENT, openapi.Response(""))
-    else:
-        responses.setdefault(status.HTTP_200_OK, response)
+    if response is not None:
+        if isinstance(response, StatusResponse):
+            responses.setdefault(response.status_code, response.response)
+        else:
+            responses.setdefault(status.HTTP_200_OK, response)
     if query or body:
         responses.setdefault(status.HTTP_422_UNPROCESSABLE_ENTITY, Response422Serializer())
     responses = dict(sorted(responses.items(), key=lambda x: x[0]))
+
+    descriptions = []
+    if permissions:
+        descriptions.append(f"**Permissions:** `{'` `'.join([permission.__name__ for permission in permissions])}`")
+
+    if method.__doc__ is None:
+        summary = None
+    else:
+        summary, *docs = method.__doc__.strip("\n").splitlines()
+        if sys.version_info >= (3, 13):
+            if docs:
+                indent_length = min((len(i) - len(i.lstrip(" ")) for i in docs))
+                docs = [i[indent_length:] for i in docs]
+        descriptions.append("\n".join(docs))
 
     return swagger_auto_schema(
         query_serializer=query,
         request_body=body,
         responses=responses,
         operation_summary=summary,
-        operation_description=description,
-        tags=tags,
+        operation_description="\n\n".join(descriptions),
+        tags=method.__qualname__.split(".")[:1] if tags is None else tags,
         deprecated=deprecated,
         pagination_class=pagination_class,
         paginator_inspectors=paginator_inspectors,
