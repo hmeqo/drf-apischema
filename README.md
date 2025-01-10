@@ -1,66 +1,113 @@
-## What is it
+## Introduction
 
-API schema generator and validator for Django REST framework.
+Automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
+This can greatly speed up development and make the code more readable.
+
+## Installation
+
+Install `drf-apischema` from PyPI
+
+```bash
+pip install drf-apischema
+```
+
+Configure your project `settings.py` like this
+
+```py
+INSTALLED_APPS = [
+    # ...
+    "drf_yasg",
+    "rest_framework",
+    # ...
+]
+
+STATIC_URL = "static/"
+
+# Ensure you have been defined it
+STATIC_ROOT = BASE_DIR / "static"
+
+# STATICFILES_DIRS = []
+```
+
+Run `collectstatic`
+
+```bash
+python manage.py collectstatic --noinput
+```
 
 ## Usage
 
+views.py
+
+```python
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAdminUser
+from rest_framework.viewsets import GenericViewSet
+
+from drf_apischema import ASRequest, apischema
+
+from .serializers import SquareOut, SquareQuery, TestOut
+
+
+class TestViewSet(GenericViewSet):
+    serializer_class = TestOut
+
+    # Define a view that requires permissions
+    @apischema(permissions=[IsAdminUser])
+    def list(self, request):
+        """List all users
+
+        Document here
+        xxx
+        """
+        # We don't process the response using the declared serializer
+        # but instead wrap it with rest_framework.response.Response
+        return self.get_serializer([1, 2, 3]).data
+
+    @action(methods=["GET"], detail=False)
+    @apischema(query=SquareQuery, response=SquareOut, transaction=False)
+    def square(self, request: ASRequest[SquareQuery]):
+        """Square a number"""
+        # request.serializer is instance of BQuery that is validated
+        print(request.serializer)
+        # request.validated_data is serializer.validated_data
+        n: int = request.validated_data["n"]
+        return SquareOut({"result": n * 2}).data
+```
+
+urls.py
+
 ```python
 from django.urls import include, path
-from rest_framework import serializers
-from rest_framework.decorators import api_view
 from rest_framework.routers import DefaultRouter
-from rest_framework.viewsets import ViewSet
 
-from drf_apischema import apischem
-from drf_apischema.utils import api_patha
+from drf_apischema.urls import api_path
 
-
-class AOut(serializers.ListSerializer):
-    child = serializers.IntegerField()
-
-
-class BQuery(serializers.Serializer):
-    n = serializers.IntegerField(default=2)
-
-
-class AViewSet(ViewSet):
-    @apischema(response=AOut)
-    def list(self, request):
-        return [1, 2, 3]
-
-
-@api_view(["GET"])
-@apischema(query=BQuery, transaction=False)
-# def b_view(request, serializer: BQuery, data: dict):
-def b_view(request, data: dict):
-    n: int = data["n"]
-    return n * n
-
+from .views import *
 
 router = DefaultRouter()
-router.register("a", AViewSet, basename="a")
+router.register("test", TestViewSet, basename="test")
 
 
 urlpatterns = [
-    api_path(
-        "api/",
-        [
-            path("", include(router.urls)),
-            path("b/", b_view),
-        ],
-    )
+    # Auto-generate /api/swagger/ and /api/redoc/ for documentation
+    api_path("api/", [path("", include(router.urls))])
 ]
 ```
 
 ## settings
 
+settings.py
+
 ```python
-# settings.py
-
-# wrap method in a transaction
-DRF_APISCHEMA_TRANSACTION = True
-
-# log SQL queries in debug mode
-DRF_APISCHEMA_SQLLOGGER = True
-DRF_APISCHEMA_SQLLOGGER_REINDENT = True
+DRF_APISCHEMA_SETTINGS = {
+    # wrap method in a transaction
+    "TRANSACTION": True,
+    # log SQL queries in debug mode
+    "SQL_LOGGER": True,
+    # indent SQL queries
+    "SQL_LOGGER_REINDENT": True,
+    # override default swagger auto schema
+    "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
+}
 ```

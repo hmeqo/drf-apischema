@@ -3,10 +3,10 @@ from typing import Any
 from django.urls import include, path, re_path
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import BasePermission, IsAdminUser
 
 
-def doc_path(urls: Any, title="API", version="v1", pattern_prefix=""):
+def doc_path(urls: Any, title="API", version="v1", pattern_prefix="", permissions: list[BasePermission] | None = None):
     schema_view = get_schema_view(
         openapi.Info(
             title=title,
@@ -17,7 +17,7 @@ def doc_path(urls: Any, title="API", version="v1", pattern_prefix=""):
             # license=openapi.License(name='BSD License'),
         ),
         public=False,
-        permission_classes=[IsAdminUser],
+        permission_classes=permissions or [IsAdminUser],
         patterns=[re_path(pattern_prefix, include(urls))],
     )
 
@@ -45,12 +45,12 @@ def list_path(preffix: str, urlpatterns: Any):
     return path(preffix, include(_urls_module_like(urlpatterns)))
 
 
-def api_path(pattern_prefix: str, urlpatterns: Any, version=""):
+def api_path(pattern_prefix: str, urlpatterns: Any, version="", permissions: list[BasePermission] | None = None):
     urls = _urls_module_like(urlpatterns)
     return list_path(
         "",
         [
-            doc_path(urls, pattern_prefix=pattern_prefix, version=version),
+            doc_path(urls, pattern_prefix=pattern_prefix, version=version, permissions=permissions),
             re_path(pattern_prefix, include(urls)),
         ],
     )

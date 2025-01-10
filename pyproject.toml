@@ -1,11 +1,24 @@
 [project]
 name = "drf-apischema"
-version = "0.1.13"
+version = "0.1.14"
 description = "API schema generator and validator for Django REST framework"
-authors = []
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = []
 requires-python = ">= 3.10"
-dependencies = ["django", "drf-yasg", "django-restframework", "rich", "sqlparser"]
+keywords = ["config", "dotfiles"]
+classifiers = ["Programming Language :: Python"]
+dependencies = [
+    "django",
+    "drf-yasg",
+    "django-restframework",
+    "rich",
+    "sqlparser",
+]
+
+[project.urls]
+Repository = "https://github.com/hmeqo/drf-apischema.git"
+Issues = "https://github.com/hmeqo/drf-apischema/issues"
 
 [tool.uv]
 dev-dependencies = ["django-stubs>=5.1.0", "djangorestframework-stubs>=3.15.1"]
