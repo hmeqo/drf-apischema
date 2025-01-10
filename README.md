@@ -69,10 +69,11 @@ class TestViewSet(GenericViewSet):
     def square(self, request: ASRequest[SquareQuery]):
         """Square a number"""
         # request.serializer is instance of BQuery that is validated
-        print(request.serializer)
+        # print(request.serializer)
+
         # request.validated_data is serializer.validated_data
         n: int = request.validated_data["n"]
-        return SquareOut({"result": n * 2}).data
+        return SquareOut({"result": n * n}).data
 ```
 
 urls.py
