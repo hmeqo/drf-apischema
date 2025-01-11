@@ -23,7 +23,6 @@ class AutoSchema(SwaggerAutoSchema):
             class_doc = self.view.__class__.__doc__
             if class_doc:
                 tags[0] = f"{tags[0]} - {class_doc.split('\n',)[0]}"
-
         tags.extend(self.overrides.get("extra_tags", []) or [])
         return tags
 
@@ -31,12 +30,14 @@ class AutoSchema(SwaggerAutoSchema):
         summary, description = super().get_summary_and_description()
 
         if apisettings.show_permissions():
-            permissions = [i for i in api_settings.DEFAULT_PERMISSION_CLASSES if i is not AllowAny]
-            permissions.extend([i.__name__ for i in getattr(self.view, "permission_classes", [])])
-            permissions.extend([i.__name__ for i in self.overrides.get("permissions", []) or []])
+            permissions = list(api_settings.DEFAULT_PERMISSION_CLASSES)
+            permissions.extend(getattr(self.view, "permission_classes", []))
+            permissions.extend(self.overrides.get("permissions", []) or [])
+            permissions = [
+                j for j in (i.__name__ if not isinstance(i, str) else i for i in permissions) if j != AllowAny.__name__
+            ]
             if permissions:
                 description = f"**Permissions:** `{'` `'.join(permissions)}`\n\n{description}"
-
         return summary, description
 
     def get_response_serializers(self):
