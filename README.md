@@ -1,7 +1,28 @@
-## Introduction
+# DRF APISchema
 
-Automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
+Based on [`drf-yasg`](https://drf-yasg.readthedocs.io/en/latest/), automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
 This can greatly speed up development and make the code more readable.
+
+## Features
+
+- Auto generate API documentation and routes
+
+- Validate queries, bodies, and permissions
+
+- Handle transactions
+
+- Log SQL queries
+
+- Simple to use
+
+```python
+@apischema(permissions=[IsAdminUser], body=UserIn, response=UserOut)
+def create(self, request: ASRequest[UserIn]):
+    print(request.serializer, request.validated_data)
+    return UserOut(request.serializer.save()).data
+```
+
+![swagger](https://github.com/user-attachments/assets/20315efb-5d0c-4e69-9384-926d4cc4ea7d)
 
 ## Installation
 
@@ -35,13 +56,31 @@ Run `collectstatic`
 python manage.py collectstatic --noinput
 ```
 
-## Usage
+## Quickstart
+
+serializers.py
+
+```python
+from rest_framework import serializers
+
+
+class TestOut(serializers.ListSerializer):
+    child = serializers.IntegerField()
+
+
+class SquareOut(serializers.Serializer):
+    result = serializers.IntegerField()
+
+
+class SquareQuery(serializers.Serializer):
+    n = serializers.IntegerField(default=2)
+```
 
 views.py
 
 ```python
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from drf_apischema import ASRequest, apischema
@@ -50,28 +89,33 @@ from .serializers import SquareOut, SquareQuery, TestOut
 
 
 class TestViewSet(GenericViewSet):
+    """Tag here"""
+
     serializer_class = TestOut
+    permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
-    @apischema(permissions=[IsAdminUser])
+    @apischema(permissions=[IsAdminUser], extra_tags=["tag1", "tag2"])
     def list(self, request):
-        """List all users
+        """List all
 
         Document here
         xxx
         """
-        # We don't process the response using the declared serializer
-        # but instead wrap it with rest_framework.response.Response
+        # Note that apischema won't automatically process the response with the
+        # declared response serializer, but it will wrap it with
+        # rest_framework.response.Response
+        # So you don't need to manually wrap it with Response
         return self.get_serializer([1, 2, 3]).data
 
     @action(methods=["GET"], detail=False)
     @apischema(query=SquareQuery, response=SquareOut, transaction=False)
     def square(self, request: ASRequest[SquareQuery]):
-        """Square a number"""
-        # request.serializer is instance of BQuery that is validated
+        """The square of a number"""
+        # The request.serializer is an instance of SquareQuery that has been validated
         # print(request.serializer)
 
-        # request.validated_data is serializer.validated_data
+        # The request.validated_data is the validated data of the serializer
         n: int = request.validated_data["n"]
         return SquareOut({"result": n * n}).data
 ```
@@ -101,14 +145,16 @@ urlpatterns = [
 settings.py
 
 ```python
-DRF_APISCHEMA_SETTINGS = {
-    # wrap method in a transaction
+DEFAULT_SETTINGS = {
+    # Enable transaction wrapping for APIs
     "TRANSACTION": True,
-    # log SQL queries in debug mode
-    "SQL_LOGGER": True,
-    # indent SQL queries
-    "SQL_LOGGER_REINDENT": True,
-    # override default swagger auto schema
+    # Enable SQL logging when in debug mode
+    "SQL_LOGGING": True,
+    # Indent SQL queries
+    "SQL_LOGGING_REINDENT": True,
+    # Override the default swagger auto schema
     "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
+    # Show permissions in description
+    "SHOW_PERMISSIONS": True,
 }
 ```

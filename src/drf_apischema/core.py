@@ -1,20 +1,7 @@
 from __future__ import annotations
 
-import sys
-
-from drf_apischema.response import StatusResponse
-
-__all__ = [
-    "apischema",
-    "get_object_or_422",
-    "check_exists",
-    "is_accept_json",
-    "Response422Serializer",
-    "HttpError",
-    "swagger_schema",
-]
-
 import inspect
+import sys
 import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -36,6 +23,7 @@ from rest_framework.response import Response
 
 from .inspectors import AutoSchema
 from .request import ASRequest
+from .response import StatusResponse
 from .settings import apisettings
 
 Serializer = type[serializers.BaseSerializer] | serializers.BaseSerializer
@@ -109,33 +97,41 @@ def apischema(
     body: Serializer | None = None,
     response: SwaggerResponse | StatusResponse | None = None,
     responses: dict[int, SwaggerResponse | Any] | None = None,
+    summary: str | None = None,
+    description: str | None = None,
     tags: Sequence[str] | None = None,
+    extra_tags: Sequence[str] | None = None,
     transaction: bool | None = None,
-    sqllogger: bool | None = None,
-    sqllogger_callback: Callable[[Any], None] | None = None,
+    sqllogging: bool | None = None,
+    sqllogging_callback: Callable[[Any], None] | None = None,
     deprecated: bool = False,
     pagination_class: type[BasePagination] | None = None,
     paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
     auto_schema: type[ViewInspector] | None = None,
+    **extra_kwargs: Any,
 ) -> Callable[[ApiMethod], Callable[..., HttpResponseBase]]:
     """
     Args:
-        permissions (Iterable[type[BasePermission]] | None, optional): Permissions required to access the endpoint.
-        query (Serializer | None, optional): Serializer for query parameters.
-        body (Serializer | None, optional): Serializer for request body.
-        response (SwaggerResponse | StatusResponse | None, optional): OpenAPI schema for the response.
-        responses (dict[int, SwaggerResponse] | None, optional): OpenAPI schema for the response.
-        tags (Sequence[str] | None, optional): Tags for the endpoint.
-        transaction (bool, optional): Whether to wrap the method in a transaction.
-        sqllogger (bool, optional): Whether to log SQL queries.
-        sqllogger_callback (Callable[[Any], None] | None, optional): Callback for SQL queries.
-        deprecated (bool, optional): Whether the endpoint is deprecated.
-        pagination_class (type[BasePagination] | None, optional): Pagination class for the endpoint.
-        paginator_inspectors (Sequence[type[PaginatorInspector]] | None, optional): Paginator inspectors for the endpoint.
-        auto_schema (type[ViewInspector] | None, optional): AutoSchema class for the endpoint.
+        permissions (Iterable[type[BasePermission]] | None, optional): The permissions needed to access the endpoint.
+        query (Serializer | None, optional): The serializer used for query parameters.
+        body (Serializer | None, optional): The serializer used for the request body.
+        response (SwaggerResponse | StatusResponse | None, optional): The OpenAPI schema for the response.
+        responses (dict[int, SwaggerResponse] | None, optional): The OpenAPI schemas for various response codes.
+        summary (str | None, optional): A brief summary of the endpoint.
+        description (str | None, optional): A detailed description of the endpoint.
+        tags (Sequence[str] | None, optional): The tags associated with the endpoint.
+        extra_tags (Sequence[str] | None, optional): Additional tags for the endpoint.
+        transaction (bool, optional): Indicates if the method should be wrapped in a transaction.
+        sqllogging (bool, optional): Indicates if SQL queries should be logged.
+        sqllogging_callback (Callable[[Any], None] | None, optional): A callback function for SQL queries.
+        deprecated (bool, optional): Indicates if the endpoint is deprecated.
+        pagination_class (type[BasePagination] | None, optional): The pagination class for the endpoint.
+        paginator_inspectors (Sequence[type[PaginatorInspector]] | None, optional): The paginator inspectors for the endpoint.
+        auto_schema (type[ViewInspector] | None, optional): The AutoSchema class for the endpoint.
+        **extra_kwargs (Any): Additional keyword arguments for the swagger_auto_schema.
 
     Returns:
-        Callable[[ApiMethod], Callable[..., HttpResponseBase]]: The decorated method.
+        Callable[[ApiMethod], Callable[..., HttpResponseBase]]: The method after decoration.
     """
 
     def decorator(method: ApiMethod) -> Callable[..., HttpResponseBase]:
@@ -144,8 +140,8 @@ def apischema(
             wrapper = _serializer_processor(wrapper, query, body)
         if apisettings.transaction(transaction):
             wrapper = _transaction.atomic(wrapper)
-        if apisettings.sqllogger(sqllogger) and settings.DEBUG:
-            wrapper = _sql_logger(wrapper, sqllogger_callback)
+        if apisettings.sqllogging(sqllogging) and settings.DEBUG:
+            wrapper = _sql_logger(wrapper, sqllogging_callback)
         if permissions:
             wrapper = _permission_processor(wrapper, permissions)
         wrapper = _excpetion_catcher(wrapper)
@@ -156,11 +152,15 @@ def apischema(
             body=body,
             response=response,
             responses=responses,
+            summary=summary,
+            description=description,
             tags=tags,
+            extra_tags=extra_tags,
             deprecated=deprecated,
             pagination_class=pagination_class,
             paginator_inspectors=paginator_inspectors,
             auto_schema=auto_schema,
+            **extra_kwargs,
         )(wrapper)
         return wrapper
 
@@ -178,7 +178,7 @@ def _sql_logger(method: WrappedMethod, callback: Callable[[Any], None] | None = 
         for query in connection.queries:
             if callback is not None:
                 callback(query)
-            sql = sqlparse.format(query["sql"], reindent=apisettings.sqllogger_reindent()).strip()
+            sql = sqlparse.format(query["sql"], reindent=apisettings.sqllogging_reindent()).strip()
             cache.append(f"[SQL] Time: {query['time']}")
             cache.append(Padding(sql, (0, 0, 0, 2)))
         rprint(*cache)
@@ -302,11 +302,15 @@ def swagger_schema(
     response: SwaggerResponse | StatusResponse | None = None,
     responses: dict[int, SwaggerResponse] | None = None,
     summary: str | None = None,
+    description: str | None = None,
     tags: Sequence[str] | None = None,
+    extra_tags: Sequence[str] | None = None,
     deprecated: bool | None = None,
     pagination_class: type[BasePagination] | None = None,
     paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
+    security: list[dict[str, list[str]]] | None = None,
     auto_schema: type[ViewInspector] | None = None,
+    **extra_kwargs: Any,
 ):
     if response is not None and inspect.isclass(response):
         response = response()
@@ -321,29 +325,32 @@ def swagger_schema(
         responses.setdefault(status.HTTP_422_UNPROCESSABLE_ENTITY, Response422Serializer())
     responses = dict(sorted(responses.items(), key=lambda x: x[0]))
 
-    descriptions = []
-    if permissions:
-        descriptions.append(f"**Permissions:** `{'` `'.join([permission.__name__ for permission in permissions])}`")
-
     if method.__doc__ is None:
-        summary = None
+        _summary = None
     else:
-        summary, *docs = method.__doc__.strip("\n").splitlines()
-        if sys.version_info >= (3, 13):
-            if docs:
-                indent_length = min((len(i) - len(i.lstrip(" ")) for i in docs))
-                docs = [i[indent_length:] for i in docs]
-        descriptions.append("\n".join(docs))
+        _summary, *docs = method.__doc__.strip("\n").splitlines()
+        if description is None:
+            if sys.version_info >= (3, 13):
+                if docs:
+                    indent_length = min((len(i) - len(i.lstrip(" ")) for i in docs))
+                    docs = [i[indent_length:] for i in docs]
+            description = "\n".join(docs).strip("\n")
+    if summary is None:
+        summary = _summary
 
     return swagger_auto_schema(
+        permissions=permissions,
         query_serializer=query,
         request_body=body,
         responses=responses,
         operation_summary=summary,
-        operation_description="\n\n".join(descriptions),
-        tags=method.__qualname__.split(".")[:1] if tags is None else tags,
+        operation_description=description,
+        tags=tags,
+        extra_tags=extra_tags,
         deprecated=deprecated,
         pagination_class=pagination_class,
         paginator_inspectors=paginator_inspectors,
-        **{"auto_schema": AutoSchema} if apisettings.override_swagger_auto_schema(auto_schema is not None) else {},  # type: ignore
+        security=security,
+        **{"auto_schema": AutoSchema} if apisettings.override_swagger_auto_schema(auto_schema) else {},  # type: ignore
+        **extra_kwargs,
     )

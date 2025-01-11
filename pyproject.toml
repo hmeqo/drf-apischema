@@ -1,13 +1,34 @@
 [project]
 name = "drf-apischema"
-version = "0.1.15"
+version = "0.1.16"
 description = "API schema generator and validator for Django REST framework"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = []
 requires-python = ">= 3.10"
-keywords = ["config", "dotfiles"]
-classifiers = ["Programming Language :: Python"]
+keywords = [
+    "drf",
+    "django",
+    "django-rest-framework",
+    "schema",
+    "swagger",
+    "openapi",
+    "codegen",
+    "swagger-codegen",
+    "documentation",
+    "drf-yasg",
+    "django-rest-swagger",
+    "drf-openapi",
+]
+classifiers = [
+    "Framework :: Django",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "django",
     "drf-yasg",
