@@ -57,7 +57,7 @@ class ProcessEvent:
 
 
 class HttpError(Exception):
-    def __init__(self, content: dict | str = "", status: int = status.HTTP_400_BAD_REQUEST):
+    def __init__(self, content: dict | str | Any = "", status: int = status.HTTP_400_BAD_REQUEST):
         if isinstance(content, dict):
             self.content = content
         else:

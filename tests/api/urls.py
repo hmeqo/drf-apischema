@@ -6,7 +6,7 @@ from drf_apischema.urls import api_path
 from .views import *
 
 router = DefaultRouter()
-router.register("test", TestViewSet, basename="test")
+router.register("users", UserViewSet)
 
 
 urlpatterns = [
