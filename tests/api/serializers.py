@@ -1,8 +1,11 @@
+from django.contrib.auth.models import User
 from rest_framework import serializers
 
 
-class TestOut(serializers.ListSerializer):
-    child = serializers.IntegerField()
+class UserOut(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username"]
 
 
 class SquareOut(serializers.Serializer):

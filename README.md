@@ -61,11 +61,14 @@ python manage.py collectstatic --noinput
 serializers.py
 
 ```python
+from django.contrib.auth.models import User
 from rest_framework import serializers
 
 
-class TestOut(serializers.ListSerializer):
-    child = serializers.IntegerField()
+class UserOut(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username"]
 
 
 class SquareOut(serializers.Serializer):
@@ -91,6 +94,7 @@ from .serializers import SquareOut, SquareQuery, TestOut
 class TestViewSet(GenericViewSet):
     """Tag here"""
 
+    queryset = User.objects.all()
     serializer_class = TestOut
     permission_classes = [IsAuthenticated]
 
@@ -106,7 +110,7 @@ class TestViewSet(GenericViewSet):
         # declared response serializer, but it will wrap it with
         # rest_framework.response.Response
         # So you don't need to manually wrap it with Response
-        return self.get_serializer([1, 2, 3]).data
+        return self.get_serializer([{"id": 1}, {"id": 2}, {"id": 3}]).data
 
     @action(methods=["GET"], detail=False)
     @apischema(query=SquareQuery, response=SquareOut, transaction=False)
@@ -118,6 +122,12 @@ class TestViewSet(GenericViewSet):
         # The request.validated_data is the validated data of the serializer
         n: int = request.validated_data["n"]
         return SquareOut({"result": n * n}).data
+
+    @action(methods=["GET"], detail=True)
+    @apischema()
+    def echo(self, request, pk):
+        """Echo the request"""
+        return self.get_serializer(self.get_object()).data
 ```
 
 urls.py

@@ -14,6 +14,8 @@ DEFAULT_SETTINGS = {
     "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
     # Show permissions in description
     "SHOW_PERMISSIONS": True,
+    # If True, request_body and response will be empty by default if the view is not restful
+    "ACTION_METHOD_EMPTY": True,
 }
 
 
@@ -45,6 +47,11 @@ class ApiSettings:
         if override is not None:
             return override
         return getattr(self.settings, "SHOW_PERMISSIONS", True)
+
+    def action_method_empty(self, override: bool | None = None) -> bool:
+        if override is not None:
+            return override
+        return getattr(self.settings, "ACTION_METHOD_EMPTY", True)
 
 
 apisettings = ApiSettings()

@@ -2,12 +2,23 @@ from collections import OrderedDict
 
 from drf_yasg import openapi
 from drf_yasg.inspectors import PaginatorInspector, SwaggerAutoSchema
+from drf_yasg.utils import no_body
 from rest_framework.pagination import BasePagination
 from rest_framework.permissions import AllowAny
 from rest_framework.settings import api_settings
 from rest_framework.status import is_success
 
+from .response import NoResponse
 from .settings import apisettings
+
+
+def is_not_restful(view):
+    return view.suffix is None
+    # return isinstance(view.action_map, str)
+
+
+def any_success(responses):
+    return any(is_success(int(sc)) for sc in responses if sc != "default")
 
 
 class AutoPaginatorInspector(PaginatorInspector):
@@ -40,6 +51,15 @@ class AutoSchema(SwaggerAutoSchema):
                 description = f"**Permissions:** `{'` `'.join(permissions)}`\n\n{description}"
         return summary, description
 
+    def get_request_body_parameters(self, consumes):
+        if (
+            apisettings.action_method_empty()
+            and self.overrides.get("request_body") is None
+            and is_not_restful(self.view)
+        ):
+            self.overrides["request_body"] = no_body
+        return super().get_request_body_parameters(consumes)
+
     def get_response_serializers(self):
         manual_responses = self.overrides.get("responses", None) or {}
         manual_responses = OrderedDict((str(sc), resp) for sc, resp in manual_responses.items())
@@ -54,8 +74,11 @@ class AutoSchema(SwaggerAutoSchema):
             serializer = manual_responses.pop("200")
             self.view.get_serializer = Override().get_serialzier
 
+        if apisettings.action_method_empty() and not any_success(manual_responses) and is_not_restful(self.view):
+            manual_responses = OrderedDict({NoResponse.status_code: NoResponse.response})
+
         responses = OrderedDict()
-        if not any(is_success(int(sc)) for sc in manual_responses if sc != "default"):
+        if not any_success(manual_responses):
             responses = self.get_default_responses()
 
         responses.update((str(sc), resp) for sc, resp in manual_responses.items())
