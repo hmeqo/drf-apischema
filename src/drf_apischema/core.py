@@ -5,7 +5,7 @@ import inspect
 import sys
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from django.db import connection
 from django.db import transaction as _transaction
@@ -13,12 +13,13 @@ from django.http import Http404
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.drainage import get_view_method_names
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.response import Response
+from rest_framework.serializers import Serializer
 from rest_framework.settings import api_settings as drf_api_settings
 
 from drf_apischema.plumbing import any_success, is_action_view, is_not_empty_none, true_empty_str
@@ -27,6 +28,8 @@ from .request import ASRequest
 from .response import StatusResponse
 from .settings import api_settings, with_override
 from .utils import HttpError, is_accept_json
+
+_SerializerType = Serializer | type[Serializer]
 
 
 @dataclass
@@ -90,6 +93,7 @@ def apischema_view(**kwargs):
 def apischema(
     permissions: Iterable[type[BasePermission]] | None = None,
     query: Any = None,
+    parameters: Sequence[OpenApiParameter | _SerializerType] | None = None,
     body: Any = empty,
     response: Any = empty,
     responses: Any = empty,
@@ -150,7 +154,7 @@ def apischema(
         func = _excpetion_catcher(func, args)
 
         return extend_schema(
-            parameters=[args.query] if args.query else None,
+            parameters=parameters or ([args.query] if args.query else None),
             request=(None if is_action_view(args.func) else empty) if args.body is empty else args.body,
             responses=_responses,
             summary=_summary,

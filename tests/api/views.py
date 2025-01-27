@@ -25,7 +25,6 @@ class UserViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
-    @apischema()
     def list(self, request):
         """List all
 
