@@ -28,9 +28,6 @@ from .response import StatusResponse
 from .settings import api_settings, with_override
 from .utils import HttpError, is_accept_json
 
-JsonValue = Mapping | Iterable | float | int | bool
-ApiMethod = Callable[..., HttpResponseBase | JsonValue | None]
-
 
 @dataclass
 class ProcessEvent:
@@ -104,7 +101,7 @@ def apischema(
     sqllogging_callback: Callable[[Any], None] | None = None,
     deprecated: bool = False,
     **kwargs,
-) -> Callable[[ApiMethod, type], Callable[..., HttpResponseBase]]:
+) -> Callable[..., Callable[..., HttpResponseBase]]:
     """
     :param permissions: The permissions needed to access the endpoint.
     :param query: The serializer used for query parameters.
