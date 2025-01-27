@@ -1,6 +1,6 @@
 # DRF APISchema
 
-Based on `drf-spectacular`, automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
+Based on [`drf-yasg`](https://drf-yasg.readthedocs.io/en/latest/), automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
 This can greatly speed up development and make the code more readable.
 
 ## Features
@@ -22,12 +22,14 @@ def create(self, request: ASRequest[UserIn]):
     return UserOut(request.serializer.save()).data
 ```
 
+![swagger](https://github.com/user-attachments/assets/20315efb-5d0c-4e69-9384-926d4cc4ea7d)
+
 ## Installation
 
 Install `drf-apischema` from PyPI
 
 ```bash
-pip install drf-apischema
+pip install drf-apischema[drf-yasg]
 ```
 
 Configure your project `settings.py` like this
@@ -35,8 +37,8 @@ Configure your project `settings.py` like this
 ```py
 INSTALLED_APPS = [
     # ...
+    "drf_yasg",
     "rest_framework",
-    "drf_spectacular",
     # ...
 ]
 
@@ -80,58 +82,52 @@ class SquareQuery(serializers.Serializer):
 views.py
 
 ```python
-from typing import Any
-
-from django.contrib.auth.models import User
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.viewsets import GenericViewSet
 
-from drf_apischema import ASRequest, apischema, apischema_view
+from drf_apischema.drf_yasg import ASRequest, apischema
 
-from .serializers import SquareOut, SquareQuery, UserOut
-
-# Create your views here.
+from .serializers import SquareOut, SquareQuery, TestOut
 
 
-@apischema_view(
-    list=apischema(permissions=[IsAdminUser], response=PageNumberPagination),
-    square=apischema(query=SquareQuery),
-)
-class UserViewSet(ModelViewSet):
-    """User management"""
+class TestViewSet(GenericViewSet):
+    """Tag here"""
 
     queryset = User.objects.all()
-    serializer_class = UserOut
+    serializer_class = TestOut
     permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
+    @apischema(permissions=[IsAdminUser], extra_tags=["tag1", "tag2"])
     def list(self, request):
         """List all
 
         Document here
         xxx
         """
-        return super().list(request)
+        # Note that apischema won't automatically process the response with the
+        # declared response serializer, but it will wrap it with
+        # rest_framework.response.Response
+        # So you don't need to manually wrap it with Response
+        return self.get_serializer([{"id": 1}, {"id": 2}, {"id": 3}]).data
 
-    @action(methods=["POST"], detail=True)
-    def echo(self, request, pk):
-        """Echo the request"""
-        return self.get_serializer(self.get_object()).data
-
-    @action(methods=["get"], detail=False)
-    def square(self, request: ASRequest[SquareQuery]) -> Any:
+    @action(methods=["GET"], detail=False)
+    @apischema(query=SquareQuery, response=SquareOut, transaction=False)
+    def square(self, request: ASRequest[SquareQuery]):
         """The square of a number"""
         # The request.serializer is an instance of SquareQuery that has been validated
         # print(request.serializer)
 
         # The request.validated_data is the validated data of the serializer
         n: int = request.validated_data["n"]
-
-        # Note that apischema won't automatically process the response with the declared response serializer,
-        # but it will wrap it with rest_framework.response.Response
-        # So you don't need to manually wrap it with Response
         return SquareOut({"result": n * n}).data
+
+    @action(methods=["GET"], detail=True)
+    @apischema()
+    def echo(self, request, pk):
+        """Echo the request"""
+        return self.get_serializer(self.get_object()).data
 ```
 
 urls.py
@@ -140,7 +136,7 @@ urls.py
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from drf_apischema.urls import api_path
+from drf_apischema.drf_yasg.urls import api_path
 
 from .views import *
 
@@ -149,7 +145,7 @@ router.register("test", TestViewSet, basename="test")
 
 
 urlpatterns = [
-    # Auto-generate /api/schema/, /api/schema/swagger/ and /api/schema/redoc/ for documentation
+    # Auto-generate /api/swagger/ and /api/redoc/ for documentation
     api_path("api/", [path("", include(router.urls))])
 ]
 ```
@@ -162,17 +158,15 @@ settings.py
 DRF_APISCHEMA_SETTINGS = {
     # Enable transaction wrapping for APIs
     "TRANSACTION": True,
-    # Enable SQL logging
+    # Enable SQL logging when in debug mode
     "SQL_LOGGING": True,
     # Indent SQL queries
     "SQL_LOGGING_REINDENT": True,
+    # Override the default swagger auto schema
+    "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
     # Show permissions in description
     "SHOW_PERMISSIONS": True,
-    # If True, request_body and response will be empty by default if the view is action decorated
-    "ACTION_DEFAULTS_EMPTY": True,
+    # If True, request_body and response will be empty by default if the view is not restful
+    "ACTION_METHOD_EMPTY": True,
 }
 ```
-
-## drf-yasg version
-
-[0.1.17](/docs/old.md)

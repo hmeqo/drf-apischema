@@ -5,11 +5,11 @@ from drf_yasg.inspectors import PaginatorInspector, SwaggerAutoSchema
 from drf_yasg.utils import no_body
 from rest_framework.pagination import BasePagination
 from rest_framework.permissions import AllowAny
-from rest_framework.settings import api_settings
+from rest_framework.settings import api_settings as drf_api_settings
 from rest_framework.status import is_success
 
 from .response import NoResponse
-from .settings import apisettings
+from .settings import api_settings
 
 
 def is_not_restful(view):
@@ -40,8 +40,8 @@ class AutoSchema(SwaggerAutoSchema):
     def get_summary_and_description(self):
         summary, description = super().get_summary_and_description()
 
-        if apisettings.show_permissions():
-            permissions = list(api_settings.DEFAULT_PERMISSION_CLASSES)
+        if api_settings.show_permissions():
+            permissions = list(drf_api_settings.DEFAULT_PERMISSION_CLASSES)
             permissions.extend(getattr(self.view, "permission_classes", []))
             permissions.extend(self.overrides.get("permissions", []) or [])
             permissions = [
@@ -53,7 +53,7 @@ class AutoSchema(SwaggerAutoSchema):
 
     def get_request_body_parameters(self, consumes):
         if (
-            apisettings.action_method_empty()
+            api_settings.action_method_empty()
             and self.overrides.get("request_body") is None
             and is_not_restful(self.view)
         ):
@@ -74,7 +74,7 @@ class AutoSchema(SwaggerAutoSchema):
             serializer = manual_responses.pop("200")
             self.view.get_serializer = Override().get_serialzier
 
-        if apisettings.action_method_empty() and not any_success(manual_responses) and is_not_restful(self.view):
+        if api_settings.action_method_empty() and not any_success(manual_responses) and is_not_restful(self.view):
             manual_responses = OrderedDict({NoResponse.status_code: NoResponse.response})
 
         responses = OrderedDict()
