@@ -18,6 +18,7 @@ This can greatly speed up development and make the code more readable.
 ```python
 @apischema(permissions=[IsAdminUser], body=UserIn, response=UserOut)
 def create(self, request: ASRequest[UserIn]):
+    """Description"""
     print(request.serializer, request.validated_data)
     return UserOut(request.serializer.save()).data
 ```
@@ -40,18 +41,12 @@ INSTALLED_APPS = [
     # ...
 ]
 
-STATIC_URL = "static/"
-
-# Ensure you have been defined it
-STATIC_ROOT = BASE_DIR / "static"
-
-# STATICFILES_DIRS = []
-```
-
-Run `collectstatic`
-
-```bash
-python manage.py collectstatic --noinput
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Your Project API",
+    "DESCRIPTION": "Your project description",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+}
 ```
 
 ## Usage
@@ -84,8 +79,9 @@ from typing import Any
 
 from django.contrib.auth.models import User
 from rest_framework.decorators import action
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.viewsets import GenericViewSet
 
 from drf_apischema import ASRequest, apischema, apischema_view
 
@@ -95,10 +91,9 @@ from .serializers import SquareOut, SquareQuery, UserOut
 
 
 @apischema_view(
-    list=apischema(permissions=[IsAdminUser], response=PageNumberPagination),
-    square=apischema(query=SquareQuery),
+    retrieve=apischema(summary="Retrieve a user"),
 )
-class UserViewSet(ModelViewSet):
+class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """User management"""
 
     queryset = User.objects.all()
@@ -106,6 +101,7 @@ class UserViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
+    @apischema(permissions=[IsAdminUser])
     def list(self, request):
         """List all
 
@@ -114,11 +110,13 @@ class UserViewSet(ModelViewSet):
         """
         return super().list(request)
 
-    @action(methods=["POST"], detail=True)
+    # will auto wrap it with `apischema` in `apischema_view`
+    @action(methods=["post"], detail=True)
     def echo(self, request, pk):
         """Echo the request"""
         return self.get_serializer(self.get_object()).data
 
+    @apischema(query=SquareQuery, response=SquareOut)
     @action(methods=["get"], detail=False)
     def square(self, request: ASRequest[SquareQuery]) -> Any:
         """The square of a number"""
@@ -166,6 +164,8 @@ DRF_APISCHEMA_SETTINGS = {
     "SQL_LOGGING": True,
     # Indent SQL queries
     "SQL_LOGGING_REINDENT": True,
+    # Use method docstring as summary and description
+    "SUMMARY_FROM_DOC": True,
     # Show permissions in description
     "SHOW_PERMISSIONS": True,
     # If True, request_body and response will be empty by default if the view is action decorated
@@ -175,4 +175,27 @@ DRF_APISCHEMA_SETTINGS = {
 
 ## drf-yasg version
 
-[0.1.17](/docs/old.md)
+Use old version [0.1.17](/docs/old.md)
+
+## Troubleshooting
+
+### Doesn't showed permissions description of `permission_classes`
+
+Wrap the view with `apischema_view`.
+
+```python
+@apischema_view()
+class XxxViewSet(GenericViewSet):
+    permissions_classes = [IsAuthenticated]
+```
+
+### TypeError: cannot be assigned to parameter of type "_View@action"
+
+Just annotate the return type to `Any`, as `apischema` will wrap it with `Response`.
+
+```python
+@apischema()
+@action(methods=["get"], detail=False)
+def xxx(self, request) -> Any:
+    ...
+```
