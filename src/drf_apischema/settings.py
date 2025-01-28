@@ -15,6 +15,9 @@ class ApiSettings:
     SQL_LOGGING_REINDENT: bool = True
     """Indent SQL queries"""
 
+    SUMMARY_FROM_DOC: bool = True
+    """Use method docstring as summary and description"""
+
     SHOW_PERMISSIONS: bool = True
     """Show permissions in description"""
 
