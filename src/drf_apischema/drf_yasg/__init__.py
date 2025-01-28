@@ -12,6 +12,8 @@ __all__ = [
     "Response422Serializer",
 ]
 
+from warnings import warn
+
 from .core import (
     HttpError,
     Response422Serializer,
@@ -23,3 +25,7 @@ from .core import (
 )
 from .request import ASRequest
 from .response import NoResponse, NumberResponse, StatusResponse
+
+warn(
+    "drf-apischema.drf_yasg is not recommended, it will be removed in the future. Please use drf-apischema==0.1.17 instead."
+)

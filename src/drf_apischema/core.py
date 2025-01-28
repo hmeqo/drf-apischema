@@ -12,7 +12,7 @@ from django.db import transaction as _transaction
 from django.http import Http404
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
-from drf_spectacular.drainage import get_view_method_names
+from drf_spectacular.drainage import get_view_method_names, isolate_view_method
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -57,34 +57,63 @@ class ProcessEvent:
 
 @dataclass
 class ArgCollection:
-    func: Any
-    cls: Any
-    permissions: Iterable[type[BasePermission]] | None
-    query: Any
-    body: Any
-    response: Any
-    responses: Any
-    summary: str | None
-    description: str | None
-    tags: Sequence[str] | None
-    transaction: bool | None
-    sqllogging: bool | None
-    sqllogging_callback: Callable[[Any], None] | None
-    deprecated: bool
+    func: Any = None
+    cls: Any = None
+    permissions: Iterable[type[BasePermission]] | None = None
+    query: Any = None
+    body: Any = empty
+    response: Any = empty
+    responses: Any = empty
+    summary: str | None = None
+    description: str | None = None
+    summary_from_doc: bool | None = None
+    tags: Sequence[str] | None = None
+    transaction: bool | None = None
+    sqllogging: bool | None = None
+    sqllogging_callback: Callable[[Any], None] | None = None
+    deprecated: bool = False
+
+    def override(self, other: ArgCollection):
+        self.func = self.func if other.func is None else other.func
+        self.cls = self.cls if other.cls is None else other.cls
+        self.permissions = self.permissions if other.permissions is None else other.permissions
+        self.query = self.query if other.query is None else other.query
+        self.body = self.body if other.body is empty else other.body
+        self.response = self.response if other.response is empty else other.response
+        self.responses = self.responses if other.responses is empty else other.responses
+        self.summary = self.summary if other.summary is None else other.summary
+        self.description = self.description if other.description is None else other.description
+        self.tags = self.tags if other.tags is None else other.tags
+        self.transaction = self.transaction if other.transaction is None else other.transaction
+        self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
+        self.sqllogging_callback = (
+            self.sqllogging_callback if other.sqllogging_callback is None else other.sqllogging_callback
+        )
+        self.deprecated = self.deprecated if other.deprecated is None else other.deprecated
+        return self
+
+
+def _wrap_view_method(view, method_name, decorator):
+    wrapped = decorator(isolate_view_method(view, method_name), view)
+    if wrapped:
+        setattr(view, method_name, wrapped)
 
 
 def apischema_view(**kwargs):
     def decorator(view):
+        # special case for @api_view. redirect decoration to enclosed WrappedAPIView
+        if callable(view) and hasattr(view, "cls"):
+            apischema_view(**kwargs)(view.cls)
+            return view
+
         available_view_methods = get_view_method_names(view)
+
         for method_name, method_decorator in kwargs.items():
             if method_name not in available_view_methods:
                 continue
-
-            method = method_decorator(getattr(view, method_name), view)
-            setattr(view, method_name, method)
+            _wrap_view_method(view, method_name, method_decorator)
         for method_name in set(available_view_methods).difference(kwargs).difference({"options"}):
-            method = apischema()(getattr(view, method_name), view)
-            setattr(view, method_name, method)
+            _wrap_view_method(view, method_name, apischema())
         return view
 
     return decorator
@@ -99,6 +128,7 @@ def apischema(
     responses: Any = empty,
     summary: str | None = None,
     description: str | None = None,
+    summary_from_doc: bool | None = None,
     tags: Sequence[str] | None = None,
     transaction: bool | None = None,
     sqllogging: bool | None = None,
@@ -133,26 +163,32 @@ def apischema(
             responses=responses,
             summary=summary,
             description=description,
+            summary_from_doc=summary_from_doc,
             tags=tags,
             transaction=transaction,
             sqllogging=sqllogging,
             sqllogging_callback=sqllogging_callback,
             deprecated=deprecated,
         )
+
+        if hasattr(func, "argcollection"):
+            args = getattr(func, "argcollection").override(args)
+
         _responses = _get_responses(args)
         _summary, _description = _get_summary_and_description(args)
 
-        func = _response_decorator(func, args)
-        if query is not None or is_not_empty_none(body):
-            func = _request_decorator(func, args)
-        if with_override(api_settings.TRANSACTION, transaction):
-            func = _transaction.atomic(func)
-        if with_override(api_settings.SQL_LOGGING, sqllogging):
-            func = _sql_logging_decorator(func, args)
-        if permissions:
-            func = _permission_decorator(func, args)
-        func = _excpetion_catcher(func, args)
-
+        if not hasattr(func, "argcollection"):
+            func = _response_decorator(func, args)
+            if query is not None or is_not_empty_none(body):
+                func = _request_decorator(func, args)
+            if with_override(api_settings.TRANSACTION, transaction):
+                func = _transaction.atomic(func)
+            if with_override(api_settings.SQL_LOGGING, sqllogging):
+                func = _sql_logging_decorator(func, args)
+            if permissions:
+                func = _permission_decorator(func, args)
+            func = _excpetion_catcher(func, args)
+            setattr(func, "argcollection", args)
         return extend_schema(
             parameters=parameters or ([args.query] if args.query else None),
             request=(None if is_action_view(args.func) else empty) if args.body is empty else args.body,
@@ -167,8 +203,8 @@ def apischema(
 
 
 def _get_responses(e: ArgCollection):
-    response = empty
-    if e.response is not empty and inspect.isclass(e.response):
+    response = e.response
+    if response is not empty and inspect.isclass(response):
         response = e.response()
     responses = {} if e.responses is empty else e.responses
     if response is not empty:
@@ -186,20 +222,25 @@ def _get_responses(e: ArgCollection):
 
 
 def _get_summary_and_description(e: ArgCollection):
-    summary = description = None
-    doc = getattr(e.func, "description", e.func.__doc__)
-    if doc is None:
-        _summary = None
+    summary = e.summary
+    description = e.description
+
+    action_description = getattr(e.func, "kwargs", {}).get("description")
+    if with_override(api_settings.SUMMARY_FROM_DOC, e.summary_from_doc):
+        doc = action_description or e.func.__doc__
+        if doc is not None and (summary is None or description is None):
+            first_line, *lines = doc.strip().splitlines()
+            if summary is None:
+                summary = e.summary = first_line
+            if description is None:
+                if sys.version_info >= (3, 13):
+                    if lines:
+                        indent_length = min((len(i) - len(i.lstrip()) for i in lines))
+                        lines = [i[indent_length:] for i in lines]
+                description = e.description = "\n".join(lines).strip()
+            description = description or true_empty_str
     else:
-        _summary, *docs = doc.strip("\n").splitlines()
-        if e.description is None:
-            if sys.version_info >= (3, 13):
-                if docs:
-                    indent_length = min((len(i) - len(i.lstrip(" ")) for i in docs))
-                    docs = [i[indent_length:] for i in docs]
-            e.description = "\n".join(docs).strip("\n")
-    if e.summary is None:
-        summary = _summary
+        description = action_description or getattr(e.cls, "__doc__")
 
     if api_settings.SHOW_PERMISSIONS:
         permissions: list = list(drf_api_settings.DEFAULT_PERMISSION_CLASSES)
@@ -209,10 +250,9 @@ def _get_summary_and_description(e: ArgCollection):
             j for j in (i.__name__ if not isinstance(i, str) else i for i in permissions) if j != AllowAny.__name__
         ]
         if permissions:
-            description = f"**Permissions:** `{'` `'.join(permissions)}`"
-            if e.description:
-                description += f"\n\n{e.description}"
-    return summary, description or true_empty_str
+            permissions_doc = f"**Permissions:** `{'` `'.join(permissions)}`"
+            description = f"{permissions_doc}\n\n{description or ''}"
+    return summary, description
 
 
 def _response_decorator(func: Callable, e: ArgCollection):

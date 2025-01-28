@@ -10,14 +10,6 @@ class TrueEmptyStr(str):
 true_empty_str = TrueEmptyStr()
 
 
-def append_to_mark_line(source: str, mark: str, target: str) -> str:
-    lines = source.splitlines()
-    for i, line in enumerate(lines):
-        if mark in line:
-            lines[i] = lines[i] + target
-    return "\n".join(lines)
-
-
 def is_action_view(view):
     return getattr(view, "detail", None) is not None
     # return isinstance(view.action_map, str)
