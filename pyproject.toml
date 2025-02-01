@@ -1,6 +1,6 @@
 [project]
 name = "drf-apischema"
-version = "0.1.17"
+version = "0.2.0"
 description = "API schema generator and validator for Django REST framework"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -13,12 +13,9 @@ keywords = [
     "schema",
     "swagger",
     "openapi",
-    "codegen",
-    "swagger-codegen",
     "documentation",
-    "drf-yasg",
-    "django-rest-swagger",
-    "drf-openapi",
+    "drf-spectacular",
+    "drf-apischema",
 ]
 classifiers = [
     "Framework :: Django",
@@ -31,10 +28,10 @@ classifiers = [
 ]
 dependencies = [
     "django",
-    "drf-yasg",
     "django-restframework",
     "rich",
     "sqlparser",
+    "drf-spectacular",
 ]
 
 [project.urls]
@@ -52,4 +49,4 @@ build-backend = "hatchling.build"
 packages = ["src/drf_apischema"]
 
 [tool.django-stubs]
-django_settings_module = "lrd.settings"
+django_settings_module = "tests.manage.settings"
