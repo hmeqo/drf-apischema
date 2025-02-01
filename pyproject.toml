@@ -13,12 +13,9 @@ keywords = [
     "schema",
     "swagger",
     "openapi",
-    "codegen",
-    "swagger-codegen",
     "documentation",
-    "drf-yasg",
-    "django-rest-swagger",
-    "drf-openapi",
+    "drf-spectacular",
+    "drf-apischema",
 ]
 classifiers = [
     "Framework :: Django",
@@ -34,15 +31,12 @@ dependencies = [
     "django-restframework",
     "rich",
     "sqlparser",
-    "drf-spectacular>=0.28.0",
+    "drf-spectacular",
 ]
 
 [project.urls]
 Repository = "https://github.com/hmeqo/drf-apischema.git"
 Issues = "https://github.com/hmeqo/drf-apischema/issues"
-
-[project.optional-dependencies]
-drf-yasg = ["drf-yasg>=1.21.8"]
 
 [tool.uv]
 dev-dependencies = ["django-stubs>=5.1.0", "djangorestframework-stubs>=3.15.1"]

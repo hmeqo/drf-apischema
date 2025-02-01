@@ -176,7 +176,7 @@ DRF_APISCHEMA_SETTINGS = {
 
 ## drf-yasg version
 
-Use old version [0.1.17](/docs/old.md)
+See branch drf-yasg, it is not longer supported
 
 ## Troubleshooting
 
