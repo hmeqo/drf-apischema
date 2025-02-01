@@ -1,6 +1,6 @@
 # DRF APISchema
 
-Based on `drf-spectacular`, automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
+Based on [`drf-yasg`](https://drf-yasg.readthedocs.io/en/latest/), automatically generate API documentation, validate queries, bodies, and permissions, handle transactions, and log SQL queries.  
 This can greatly speed up development and make the code more readable.
 
 ## Features
@@ -18,17 +18,18 @@ This can greatly speed up development and make the code more readable.
 ```python
 @apischema(permissions=[IsAdminUser], body=UserIn, response=UserOut)
 def create(self, request: ASRequest[UserIn]):
-    """Description"""
     print(request.serializer, request.validated_data)
     return UserOut(request.serializer.save()).data
 ```
+
+![swagger](https://github.com/user-attachments/assets/20315efb-5d0c-4e69-9384-926d4cc4ea7d)
 
 ## Installation
 
 Install `drf-apischema` from PyPI
 
 ```bash
-pip install drf-apischema
+pip install drf-apischema[drf-yasg]
 ```
 
 Configure your project `settings.py` like this
@@ -36,18 +37,23 @@ Configure your project `settings.py` like this
 ```py
 INSTALLED_APPS = [
     # ...
+    "drf_yasg",
     "rest_framework",
-    "drf_spectacular",
     # ...
 ]
 
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Your Project API",
-    "DESCRIPTION": "Your project description",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    'SCHEMA_PATH_PREFIX': '/api',
-}
+STATIC_URL = "static/"
+
+# Ensure you have been defined it
+STATIC_ROOT = BASE_DIR / "static"
+
+# STATICFILES_DIRS = []
+```
+
+Run `collectstatic`
+
+```bash
+python manage.py collectstatic --noinput
 ```
 
 ## Usage
@@ -76,25 +82,20 @@ class SquareQuery(serializers.Serializer):
 views.py
 
 ```python
-from typing import Any
-
 from django.contrib.auth.models import User
 from rest_framework.decorators import action
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
+from rest_framework.mixins import ListModelMixin
 
-from drf_apischema import ASRequest, apischema, apischema_view
+from drf_apischema import ASRequest, apischema
 
 from .serializers import SquareOut, SquareQuery, UserOut
 
 # Create your views here.
 
 
-@apischema_view(
-    retrieve=apischema(summary="Retrieve a user"),
-)
-class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
+class UserViewSet(GenericViewSet, ListModelMixin):
     """User management"""
 
     queryset = User.objects.all()
@@ -102,7 +103,7 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
-    @apischema(permissions=[IsAdminUser])
+    @apischema(permissions=[IsAdminUser], extra_tags=["tag1", "user"])
     def list(self, request):
         """List all
 
@@ -111,15 +112,9 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
         """
         return super().list(request)
 
-    # will auto wrap it with `apischema` in `apischema_view`
-    @action(methods=["post"], detail=True)
-    def echo(self, request, pk):
-        """Echo the request"""
-        return self.get_serializer(self.get_object()).data
-
-    @apischema(query=SquareQuery, response=SquareOut)
-    @action(methods=["get"], detail=False)
-    def square(self, request: ASRequest[SquareQuery]) -> Any:
+    @action(methods=["GET"], detail=False)
+    @apischema(query=SquareQuery, response=SquareOut, transaction=False)
+    def square(self, request: ASRequest[SquareQuery]):
         """The square of a number"""
         # The request.serializer is an instance of SquareQuery that has been validated
         # print(request.serializer)
@@ -131,6 +126,12 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
         # but it will wrap it with rest_framework.response.Response
         # So you don't need to manually wrap it with Response
         return SquareOut({"result": n * n}).data
+
+    @action(methods=["POST"], detail=True)
+    @apischema(response=UserOut)
+    def echo(self, request, pk):
+        """Echo the request"""
+        return self.get_serializer(self.get_object()).data
 ```
 
 urls.py
@@ -139,7 +140,7 @@ urls.py
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from drf_apischema.urls import api_path
+from drf_apischema.drf_yasg.urls import api_path
 
 from .views import *
 
@@ -148,7 +149,7 @@ router.register("test", TestViewSet, basename="test")
 
 
 urlpatterns = [
-    # Auto-generate /api/schema/, /api/schema/swagger/ and /api/schema/redoc/ for documentation
+    # Auto-generate /api/swagger/ and /api/redoc/ for documentation
     api_path("api/", [path("", include(router.urls))])
 ]
 ```
@@ -161,42 +162,15 @@ settings.py
 DRF_APISCHEMA_SETTINGS = {
     # Enable transaction wrapping for APIs
     "TRANSACTION": True,
-    # Enable SQL logging
+    # Enable SQL logging when in debug mode
     "SQL_LOGGING": True,
     # Indent SQL queries
     "SQL_LOGGING_REINDENT": True,
-    # Use method docstring as summary and description
-    "SUMMARY_FROM_DOC": True,
+    # Override the default swagger auto schema
+    "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
     # Show permissions in description
     "SHOW_PERMISSIONS": True,
     # If True, request_body and response will be empty by default if the view is action decorated
-    "ACTION_DEFAULTS_EMPTY": True,
+    "ACTION_METHOD_EMPTY": True,
 }
-```
-
-## drf-yasg version
-
-Use old version [0.1.17](/docs/old.md)
-
-## Troubleshooting
-
-### Doesn't showed permissions description of `permission_classes`
-
-Wrap the view with `apischema_view`.
-
-```python
-@apischema_view()
-class XxxViewSet(GenericViewSet):
-    permissions_classes = [IsAuthenticated]
-```
-
-### TypeError: cannot be assigned to parameter of type "_View@action"
-
-Just annotate the return type to `Any`, as `apischema` will wrap it with `Response`.
-
-```python
-@apischema()
-@action(methods=["get"], detail=False)
-def xxx(self, request) -> Any:
-    ...
 ```
