@@ -1,6 +1,6 @@
 [project]
 name = "drf-apischema"
-version = "0.1.18"
+version = "0.1.19"
 description = "API schema generator and validator for Django REST framework"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -34,7 +34,7 @@ dependencies = [
     "django-restframework",
     "rich",
     "sqlparser",
-    "drf-yasg>=1.21.8",
+    "drf-yasg",
 ]
 
 [project.urls]
