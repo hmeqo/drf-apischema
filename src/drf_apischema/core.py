@@ -1,35 +1,36 @@
 from __future__ import annotations
 
-import functools
 import inspect
 import sys
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from django.db import connection
+from django.conf import settings
+from django.db import connection, models
 from django.db import transaction as _transaction
-from django.http import Http404
+from django.http import Http404, HttpRequest
 from django.http.response import HttpResponseBase
 from django.utils.translation import gettext_lazy as _
-from drf_spectacular.drainage import get_view_method_names, isolate_view_method
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_yasg import openapi
+from drf_yasg.inspectors import PaginatorInspector, ViewInspector
+from drf_yasg.utils import swagger_auto_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import empty
-from rest_framework.permissions import AllowAny, BasePermission
+from rest_framework.pagination import BasePagination
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
-from rest_framework.serializers import Serializer
-from rest_framework.settings import api_settings as drf_api_settings
 
-from drf_apischema.plumbing import any_success, is_action_view, is_not_empty_none, true_empty_str
-
+from .inspectors import AutoSchema
 from .request import ASRequest
 from .response import StatusResponse
-from .settings import api_settings, with_override
-from .utils import HttpError, is_accept_json
+from .settings import api_settings
 
-_SerializerType = Serializer | type[Serializer]
+Serializer = type[serializers.BaseSerializer] | serializers.BaseSerializer
+JsonValue = Mapping | Iterable | float | int | bool
+ApiMethod = Callable[..., HttpResponseBase | JsonValue | None]
+WrappedMethod = Callable[["ProcessEvent"], HttpResponseBase]
+SwaggerResponse = openapi.Response | Serializer
 
 
 @dataclass
@@ -55,107 +56,97 @@ class ProcessEvent:
         return self.view.detail if self.view else False
 
 
-@dataclass
-class ArgCollection:
-    func: Any = None
-    cls: Any = None
-    permissions: Iterable[type[BasePermission]] | None = None
-    query: Any = None
-    body: Any = empty
-    response: Any = empty
-    responses: Any = empty
-    summary: str | None = None
-    description: str | None = None
-    summary_from_doc: bool | None = None
-    tags: Sequence[str] | None = None
-    transaction: bool | None = None
-    sqllogging: bool | None = None
-    sqllogging_callback: Callable[[Any], None] | None = None
-    deprecated: bool = False
-
-    def override(self, other: ArgCollection):
-        self.func = self.func if other.func is None else other.func
-        self.cls = self.cls if other.cls is None else other.cls
-        self.permissions = self.permissions if other.permissions is None else other.permissions
-        self.query = self.query if other.query is None else other.query
-        self.body = self.body if other.body is empty else other.body
-        self.response = self.response if other.response is empty else other.response
-        self.responses = self.responses if other.responses is empty else other.responses
-        self.summary = self.summary if other.summary is None else other.summary
-        self.description = self.description if other.description is None else other.description
-        self.tags = self.tags if other.tags is None else other.tags
-        self.transaction = self.transaction if other.transaction is None else other.transaction
-        self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
-        self.sqllogging_callback = (
-            self.sqllogging_callback if other.sqllogging_callback is None else other.sqllogging_callback
-        )
-        self.deprecated = self.deprecated if other.deprecated is None else other.deprecated
-        return self
+class HttpError(Exception):
+    def __init__(self, content: dict | str | Any = "", status: int = status.HTTP_400_BAD_REQUEST):
+        if isinstance(content, dict):
+            self.content = content
+        else:
+            self.content = {"detail": content}
+        self.status = status
 
 
-def _wrap_view_method(view, method_name, decorator):
-    wrapped = decorator(isolate_view_method(view, method_name), view)
-    if wrapped:
-        setattr(view, method_name, wrapped)
+def get_object_or_422(qs: type[models.Model] | models.QuerySet, *args, **kwargs) -> models.Model:
+    """Get an object from a queryset or raise a 422 error if it doesn't exist."""
+    model = qs.model if isinstance(qs, models.QuerySet) else qs
+    try:
+        if isinstance(qs, models.QuerySet):
+            return qs.get(*args, **kwargs)
+        return qs.objects.get(*args, **kwargs)
+    except model.DoesNotExist:
+        raise HttpError(_("Not found."), status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
-def apischema_view(**kwargs):
-    def decorator(view):
-        # special case for @api_view. redirect decoration to enclosed WrappedAPIView
-        if callable(view) and hasattr(view, "cls"):
-            apischema_view(**kwargs)(view.cls)
-            return view
+def check_exists(qs: type[models.Model] | models.QuerySet, *args, raise_error=True, **kwargs) -> bool:
+    """Check if an object exists in a queryset or raise a 422 error if it doesn't exist."""
+    model = qs.model if isinstance(qs, models.QuerySet) else qs
+    flag = model.objects.filter(*args, **kwargs).exists()
+    if raise_error and not flag:
+        raise HttpError(_("Not found."), status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return flag
 
-        available_view_methods = get_view_method_names(view)
 
-        for method_name, method_decorator in kwargs.items():
-            if method_name not in available_view_methods:
-                continue
-            _wrap_view_method(view, method_name, method_decorator)
-        for method_name in set(available_view_methods).difference(kwargs).difference({"options"}):
-            _wrap_view_method(view, method_name, apischema())
-        return view
-
-    return decorator
+def is_accept_json(request: HttpRequest):
+    """Check if the request accepts JSON."""
+    return request.headers.get("accept", "").split(";")[0] == "application/json"
 
 
 def apischema(
+    *,
     permissions: Iterable[type[BasePermission]] | None = None,
-    query: Any = None,
-    parameters: Sequence[OpenApiParameter | _SerializerType] | None = None,
-    body: Any = empty,
-    response: Any = empty,
-    responses: Any = empty,
+    query: Serializer | None = None,
+    body: Serializer | None = None,
+    response: SwaggerResponse | StatusResponse | None = None,
+    responses: dict[int, SwaggerResponse | Any] | None = None,
     summary: str | None = None,
     description: str | None = None,
-    summary_from_doc: bool | None = None,
     tags: Sequence[str] | None = None,
+    extra_tags: Sequence[str] | None = None,
     transaction: bool | None = None,
     sqllogging: bool | None = None,
     sqllogging_callback: Callable[[Any], None] | None = None,
     deprecated: bool = False,
-    **kwargs,
-) -> Callable[..., Callable[..., HttpResponseBase]]:
+    pagination_class: type[BasePagination] | None = None,
+    paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
+    auto_schema: type[ViewInspector] | None = None,
+    **extra_kwargs: Any,
+) -> Callable[[ApiMethod], Callable[..., HttpResponseBase]]:
     """
-    :param permissions: The permissions needed to access the endpoint.
-    :param query: The serializer used for query parameters.
-    :param body: The serializer used for the request body.
-    :param response: The OpenAPI schema for the response.
-    :param responses: The OpenAPI schemas for various response codes.
-    :param summary: A brief summary of the endpoint.
-    :param description: A detailed description of the endpoint.
-    :param tags: The tags associated with the endpoint.
-    :param transaction: Whether to use a transaction for the endpoint.
-    :param sqllogging: Whether to log SQL queries for the endpoint.
-    :param sqllogging_callback: A callback to log SQL queries for the endpoint.
-    :param deprecated: Whether to mark the endpoint as deprecated.
-    :param kwargs: Additional keyword arguments to pass to the `extend_schema` decorator.
+    Args:
+        permissions (Iterable[type[BasePermission]] | None, optional): The permissions needed to access the endpoint.
+        query (Serializer | None, optional): The serializer used for query parameters.
+        body (Serializer | None, optional): The serializer used for the request body.
+        response (SwaggerResponse | StatusResponse | None, optional): The OpenAPI schema for the response.
+        responses (dict[int, SwaggerResponse] | None, optional): The OpenAPI schemas for various response codes.
+        summary (str | None, optional): A brief summary of the endpoint.
+        description (str | None, optional): A detailed description of the endpoint.
+        tags (Sequence[str] | None, optional): The tags associated with the endpoint.
+        extra_tags (Sequence[str] | None, optional): Additional tags for the endpoint.
+        transaction (bool, optional): Indicates if the method should be wrapped in a transaction.
+        sqllogging (bool, optional): Indicates if SQL queries should be logged.
+        sqllogging_callback (Callable[[Any], None] | None, optional): A callback function for SQL queries.
+        deprecated (bool, optional): Indicates if the endpoint is deprecated.
+        pagination_class (type[BasePagination] | None, optional): The pagination class for the endpoint.
+        paginator_inspectors (Sequence[type[PaginatorInspector]] | None, optional): The paginator inspectors for the endpoint.
+        auto_schema (type[ViewInspector] | None, optional): The AutoSchema class for the endpoint.
+        **extra_kwargs (Any): Additional keyword arguments for the swagger_auto_schema.
+
+    Returns:
+        Callable[[ApiMethod], Callable[..., HttpResponseBase]]: The method after decoration.
     """
 
-    def decorator(func, cls=None):
-        args = ArgCollection(
-            func=func,
-            cls=cls,
+    def decorator(method: ApiMethod) -> Callable[..., HttpResponseBase]:
+        wrapper = _response_processor(method)
+        if query or body:
+            wrapper = _serializer_processor(wrapper, query, body)
+        if api_settings.transaction(transaction):
+            wrapper = _transaction.atomic(wrapper)
+        if api_settings.sqllogging(sqllogging) and settings.DEBUG:
+            wrapper = _sql_logger(wrapper, sqllogging_callback)
+        if permissions:
+            wrapper = _permission_processor(wrapper, permissions)
+        wrapper = _excpetion_catcher(wrapper)
+        wrapper = swagger_schema(
+            method=method,
             permissions=permissions,
             query=query,
             body=body,
@@ -163,189 +154,44 @@ def apischema(
             responses=responses,
             summary=summary,
             description=description,
-            summary_from_doc=summary_from_doc,
             tags=tags,
-            transaction=transaction,
-            sqllogging=sqllogging,
-            sqllogging_callback=sqllogging_callback,
+            extra_tags=extra_tags,
             deprecated=deprecated,
-        )
-
-        if hasattr(func, "argcollection"):
-            args = getattr(func, "argcollection").override(args)
-
-        _responses = _get_responses(args)
-        _summary, _description = _get_summary_and_description(args)
-
-        if not hasattr(func, "argcollection"):
-            func = _response_decorator(func, args)
-            if query is not None or is_not_empty_none(body):
-                func = _request_decorator(func, args)
-            if with_override(api_settings.TRANSACTION, transaction):
-                func = _transaction.atomic(func)
-            if with_override(api_settings.SQL_LOGGING, sqllogging):
-                func = _sql_logging_decorator(func, args)
-            if permissions:
-                func = _permission_decorator(func, args)
-            func = _excpetion_catcher(func, args)
-            setattr(func, "argcollection", args)
-        return extend_schema(
-            parameters=parameters or ([args.query] if args.query else None),
-            request=(None if is_action_view(args.func) else empty) if args.body is empty else args.body,
-            responses=_responses,
-            summary=_summary,
-            description=_description,
-            tags=tags,
-            **kwargs,
-        )(func)
+            pagination_class=pagination_class,
+            paginator_inspectors=paginator_inspectors,
+            auto_schema=auto_schema,
+            **extra_kwargs,
+        )(wrapper)
+        return wrapper
 
     return decorator
 
 
-def _get_responses(e: ArgCollection):
-    response = e.response
-    if response is not empty and inspect.isclass(response):
-        response = e.response()
-    responses = {} if e.responses is empty else e.responses
-    if response is not empty:
-        if isinstance(response, StatusResponse):
-            responses.setdefault(response.status_code, response)
-        else:
-            responses.setdefault(status.HTTP_200_OK, response)
-    if api_settings.ACTION_DEFAULTS_EMPTY and not any_success(responses) and is_action_view(e.func):
-        responses = {status.HTTP_204_NO_CONTENT: None}
-    if responses:
-        responses = dict(sorted(responses.items(), key=lambda x: x[0]))
-    else:
-        responses = empty
-    return responses
-
-
-def _get_summary_and_description(e: ArgCollection):
-    summary = e.summary
-    description = e.description
-
-    action_description = getattr(e.func, "kwargs", {}).get("description")
-    if with_override(api_settings.SUMMARY_FROM_DOC, e.summary_from_doc):
-        doc = action_description or e.func.__doc__
-        if doc is not None and (summary is None or description is None):
-            first_line, *lines = doc.strip().splitlines()
-            if summary is None:
-                summary = e.summary = first_line
-            if description is None:
-                if sys.version_info >= (3, 13):
-                    if lines:
-                        indent_length = min((len(i) - len(i.lstrip()) for i in lines))
-                        lines = [i[indent_length:] for i in lines]
-                description = e.description = "\n".join(lines).strip()
-            description = description or true_empty_str
-    else:
-        description = action_description or getattr(e.cls, "__doc__")
-
-    if api_settings.SHOW_PERMISSIONS:
-        permissions: list = list(drf_api_settings.DEFAULT_PERMISSION_CLASSES)
-        permissions.extend(getattr(e.cls, "permission_classes", []))
-        permissions.extend(e.permissions or [])
-        permissions = [
-            j for j in (i.__name__ if not isinstance(i, str) else i for i in permissions) if j != AllowAny.__name__
-        ]
-        if permissions:
-            permissions_doc = f"**Permissions:** `{'` `'.join(permissions)}`"
-            description = f"{permissions_doc}\n\n{description or ''}"
-    return summary, description
-
-
-def _response_decorator(func: Callable, e: ArgCollection):
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent) -> HttpResponseBase:
-        response = func(*event.args, **event.kwargs)
-        if response is None:
-            response = Response(status=status.HTTP_204_NO_CONTENT)
-        elif isinstance(response, HttpResponseBase):
-            response = response
-        else:
-            response = Response(response)
-        return response
-
-    return wrapper
-
-
-def _request_decorator(func: Callable, e: ArgCollection):
-    if e.query is not None:
-
-        def get_serializer(event: ProcessEvent):
-            if isinstance(e.query, serializers.BaseSerializer):
-                serializer = e.query
-                serializer.instance = event.get_object()
-                serializer.initial_data = event.query_data
-            else:
-                serializer = e.query(instance=event.get_object(), data=event.query_data)
-            return serializer
-
-    elif is_not_empty_none(e.body):
-
-        def get_serializer(event: ProcessEvent):
-            if isinstance(e.body, serializers.BaseSerializer):
-                serializer = e.body
-                serializer.instance = event.get_object()
-                serializer.initial_data = event.body_data
-            else:
-                serializer = e.body(instance=event.get_object(), data=event.body_data)
-            return serializer
-
-    else:
-        raise ValueError("query or body is required")
-
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        serializer = get_serializer(event)
-        serializer.is_valid(raise_exception=True)
-
-        event.request.serializer = serializer
-        event.request.validated_data = serializer.validated_data
-        return func(event)
-
-    return wrapper
-
-
-def _sql_logging_decorator(func: Callable, e: ArgCollection):
-    @functools.wraps(func)
+def _sql_logger(method: WrappedMethod, callback: Callable[[Any], None] | None = None):
     def wrapper(event: ProcessEvent):
         import sqlparse
         from rich import print as rprint
         from rich.padding import Padding
 
-        response = func(event)
+        response = method(event)
         cache = []
         for query in connection.queries:
-            if e.sqllogging_callback is not None:
-                e.sqllogging_callback(query)
-            sql = sqlparse.format(query["sql"], reindent=api_settings.SQL_LOGGING_REINDENT).strip()
+            if callback is not None:
+                callback(query)
+            sql = sqlparse.format(query["sql"], reindent=api_settings.sqllogging_reindent()).strip()
             cache.append(f"[SQL] Time: {query['time']}")
             cache.append(Padding(sql, (0, 0, 0, 2)))
         rprint(*cache)
         return response
 
+    wrapper.__name__ = method.__name__
     return wrapper
 
 
-def _permission_decorator(func: Callable, e: ArgCollection):
-    __permissions = [permission() for permission in (e.permissions or [])]
-
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        for permission in __permissions:
-            if permission.has_permission(event.request, event.view):  # type: ignore
-                return func(event)
-        raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
-
-    return wrapper
-
-
-def _excpetion_catcher(func: Callable, e: ArgCollection):
-    def handle_exception(event: ProcessEvent):
+def _excpetion_catcher(method: WrappedMethod):
+    def exception_handler(event: ProcessEvent):
         try:
-            response = func(event)
+            response = method(event)
         except Http404 as exc:
             raise exc
         except HttpError as exc:
@@ -359,13 +205,152 @@ def _excpetion_catcher(func: Callable, e: ArgCollection):
             raise exc
         return response
 
-    @functools.wraps(func)
-    def default_wrapper(*args, **kwds):
+    def default_handler(*args, **kwds):
         if hasattr(args[0], "request"):
             request, view = args[1], args[0]
         else:
             request, view = args[0], None
         event = ProcessEvent(request=request, view=view, args=args, kwargs=kwds)
-        return handle_exception(event)
+        return exception_handler(event)
 
-    return default_wrapper
+    default_handler.__name__ = method.__name__
+    return default_handler
+
+
+def _response_processor(method: ApiMethod):
+    def wrapper(event: ProcessEvent) -> HttpResponseBase:
+        response = method(*event.args, **event.kwargs)
+        if response is None:
+            response = Response(status=status.HTTP_204_NO_CONTENT)
+        elif isinstance(response, HttpResponseBase):
+            response = response
+        else:
+            response = Response(response)
+        return response
+
+    wrapper.__name__ = method.__name__
+    return wrapper
+
+
+def _serializer_processor(
+    method: WrappedMethod,
+    query: Serializer | None = None,
+    body: Serializer | None = None,
+):
+    if query:
+
+        def get_serializer(event: ProcessEvent):
+            if isinstance(query, serializers.BaseSerializer):
+                serializer = query
+                serializer.instance = event.get_object()
+                serializer.initial_data = event.query_data
+            else:
+                serializer = query(instance=event.get_object(), data=event.query_data)
+            return serializer
+
+    elif body:
+
+        def get_serializer(event: ProcessEvent):
+            if isinstance(body, serializers.BaseSerializer):
+                serializer = body
+                serializer.instance = event.get_object()
+                serializer.initial_data = event.body_data
+            else:
+                serializer = body(instance=event.get_object(), data=event.body_data)
+            return serializer
+
+    else:
+        raise ValueError("query or body is required")
+
+    def wrapper(event: ProcessEvent):
+        serializer = get_serializer(event)
+        serializer.is_valid(raise_exception=True)
+
+        event.request.serializer = serializer
+        event.request.validated_data = serializer.validated_data
+        return method(event)
+
+    wrapper.__name__ = method.__name__
+    return wrapper
+
+
+def _permission_processor(
+    method: WrappedMethod,
+    permissions: Iterable[type[BasePermission]],
+):
+    __permissions = [permission() for permission in permissions]
+
+    def wrapper(event: ProcessEvent):
+        for permission in __permissions:
+            if permission.has_permission(event.request, event.view):  # type: ignore
+                return method(event)
+        raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
+
+    wrapper.__name__ = method.__name__
+    return wrapper
+
+
+class Response422Serializer(serializers.Serializer):
+    detail = serializers.Field()
+
+
+def swagger_schema(
+    method: ApiMethod,
+    permissions: Iterable[type[BasePermission]] | None = None,
+    query: Serializer | None = None,
+    body: Serializer | None = None,
+    response: SwaggerResponse | StatusResponse | None = None,
+    responses: dict[int, SwaggerResponse] | None = None,
+    summary: str | None = None,
+    description: str | None = None,
+    tags: Sequence[str] | None = None,
+    extra_tags: Sequence[str] | None = None,
+    deprecated: bool | None = None,
+    pagination_class: type[BasePagination] | None = None,
+    paginator_inspectors: Sequence[type[PaginatorInspector]] | None = None,
+    security: list[dict[str, list[str]]] | None = None,
+    auto_schema: type[ViewInspector] | None = None,
+    **extra_kwargs: Any,
+):
+    if response is not None and inspect.isclass(response):
+        response = response()
+
+    responses = responses or {}
+    if response is not None:
+        if isinstance(response, StatusResponse):
+            responses.setdefault(response.status_code, response.response)
+        else:
+            responses.setdefault(status.HTTP_200_OK, response)
+    if query or body:
+        responses.setdefault(status.HTTP_422_UNPROCESSABLE_ENTITY, Response422Serializer())
+    responses = dict(sorted(responses.items(), key=lambda x: x[0]))
+
+    if method.__doc__ is None:
+        _summary = None
+    else:
+        _summary, *docs = method.__doc__.strip("\n").splitlines()
+        if description is None:
+            if sys.version_info >= (3, 13):
+                if docs:
+                    indent_length = min((len(i) - len(i.lstrip(" ")) for i in docs))
+                    docs = [i[indent_length:] for i in docs]
+            description = "\n".join(docs).strip("\n")
+    if summary is None:
+        summary = _summary
+
+    return swagger_auto_schema(
+        permissions=permissions,
+        query_serializer=query,
+        request_body=body,
+        responses=responses,
+        operation_summary=summary,
+        operation_description=description,
+        tags=tags,
+        extra_tags=extra_tags,
+        deprecated=deprecated,
+        pagination_class=pagination_class,
+        paginator_inspectors=paginator_inspectors,
+        security=security,
+        **{"auto_schema": AutoSchema} if api_settings.override_swagger_auto_schema(auto_schema) else {},  # type: ignore
+        **extra_kwargs,
+    )
