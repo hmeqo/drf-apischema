@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-09-09 10:40+0000\n"
+"POT-Creation-Date: 2025-02-01 18:27+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,15 +17,15 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: src/drf_apischema/core/__init__.py:58 src/drf_apischema/core/__init__.py:66
-# Django
-msgid "Not found."
-msgstr ""
+#: src/drf_apischema/core.py:340
+msgid "You do not have permission to perform this action."
+msgstr "您没有执行此操作的权限。"
 
-#: src/drf_apischema/core/__init__.py:155
+#: src/drf_apischema/core.py:358
 msgid "Server error."
 msgstr "服务器错误."
 
-#: src/drf_apischema/core/__init__.py:241
-msgid "You do not have permission to perform this action."
-msgstr "您没有执行此操作的权限。"
+# Django
+#: src/drf_apischema/utils.py:26 src/drf_apischema/utils.py:34
+msgid "Not found."
+msgstr ""

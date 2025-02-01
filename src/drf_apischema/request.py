@@ -6,6 +6,6 @@ from rest_framework.request import Request
 ST = TypeVar("ST", bound=serializers.BaseSerializer)
 
 
-class ASRequest(Generic[ST], Request):
+class ASRequest(Request, Generic[ST]):
     serializer: ST
     validated_data: Any

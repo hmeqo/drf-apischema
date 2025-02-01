@@ -1,57 +1,37 @@
-from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from typing import TypeVar
 
 from django.conf import settings
 
-DEFAULT_SETTINGS = {
-    # Enable transaction wrapping for APIs
-    "TRANSACTION": True,
-    # Enable SQL logging when in debug mode
-    "SQL_LOGGING": True,
-    # Indent SQL queries
-    "SQL_LOGGING_REINDENT": True,
-    # Override the default swagger auto schema
-    "OVERRIDE_SWAGGER_AUTO_SCHEMA": True,
-    # Show permissions in description
-    "SHOW_PERMISSIONS": True,
-    # If True, request_body and response will be empty by default if the view is not restful
-    "ACTION_METHOD_EMPTY": True,
-}
 
-
+@dataclass
 class ApiSettings:
-    def __init__(self):
-        self.settings = deepcopy(DEFAULT_SETTINGS).update(getattr(settings, "DRF_APISCHEMA_SETTINGS", {}))
+    TRANSACTION: bool = True
+    """Enable transaction wrapping for APIs"""
 
-    def transaction(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "TRANSACTION", True)
+    SQL_LOGGING: bool = settings.DEBUG
+    """Enable SQL logging"""
 
-    def sqllogging(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "SQL_LOGGING", True)
+    SQL_LOGGING_REINDENT: bool = True
+    """Indent SQL queries"""
 
-    def sqllogging_reindent(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "SQL_LOGGING_REINDENT", True)
+    SUMMARY_FROM_DOC: bool = True
+    """Use method docstring as summary and description"""
 
-    def override_swagger_auto_schema(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "OVERRIDE_SWAGGER_AUTO_SCHEMA", True)
+    SHOW_PERMISSIONS: bool = True
+    """Show permissions in description"""
 
-    def show_permissions(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "SHOW_PERMISSIONS", True)
-
-    def action_method_empty(self, override: bool | None = None) -> bool:
-        if override is not None:
-            return override
-        return getattr(self.settings, "ACTION_METHOD_EMPTY", True)
+    ACTION_DEFAULTS_EMPTY: bool = True
+    """If True, request_body and response will be empty by default if the view is action decorated"""
 
 
-apisettings = ApiSettings()
+api_settings = ApiSettings(**getattr(settings, "DRF_APISCHEMA_SETTINGS", {}))
+
+
+T = TypeVar("T")
+
+
+def with_override(default: T, override: T = None) -> T:
+    if override is not None:
+        return override
+    return default
