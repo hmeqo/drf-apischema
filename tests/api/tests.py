@@ -11,10 +11,9 @@ class TestApiSchema(APITestCase):
 
     def test_a(self):
         self.client.force_authenticate(user=self.user)
+
         response = self.client.get("/api/users/")
         self.assertEqual(response.json(), [{"id": 1, "username": "admin"}, {"id": 2, "username": "user"}])
 
-    def test_b(self):
-        self.client.force_authenticate(user=self.user)
         response = self.client.get("/api/users/square/?n=5")
         self.assertEqual(response.json(), {"result": 25})
