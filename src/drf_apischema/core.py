@@ -4,6 +4,7 @@ import functools
 import inspect
 import sys
 import traceback
+from copy import copy
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Sequence
 
@@ -70,7 +71,6 @@ class ArgCollection:
     tags: Sequence[str] | None = None
     transaction: bool | None = None
     sqllogging: bool | None = None
-    sqllogging_callback: Callable[[Any], None] | None = None
     deprecated: bool = False
 
     def override(self, other: ArgCollection):
@@ -86,9 +86,6 @@ class ArgCollection:
         self.tags = self.tags if other.tags is None else other.tags
         self.transaction = self.transaction if other.transaction is None else other.transaction
         self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
-        self.sqllogging_callback = (
-            self.sqllogging_callback if other.sqllogging_callback is None else other.sqllogging_callback
-        )
         self.deprecated = self.deprecated if other.deprecated is None else other.deprecated
         return self
 
@@ -132,7 +129,6 @@ def apischema(
     tags: Sequence[str] | None = None,
     transaction: bool | None = None,
     sqllogging: bool | None = None,
-    sqllogging_callback: Callable[[Any], None] | None = None,
     deprecated: bool = False,
     **kwargs,
 ) -> Callable[..., Callable[..., HttpResponseBase]]:
@@ -147,7 +143,6 @@ def apischema(
     :param tags: The tags associated with the endpoint.
     :param transaction: Whether to use a transaction for the endpoint.
     :param sqllogging: Whether to log SQL queries for the endpoint.
-    :param sqllogging_callback: A callback to log SQL queries for the endpoint.
     :param deprecated: Whether to mark the endpoint as deprecated.
     :param kwargs: Additional keyword arguments to pass to the `extend_schema` decorator.
     """
@@ -167,7 +162,6 @@ def apischema(
             tags=tags,
             transaction=transaction,
             sqllogging=sqllogging,
-            sqllogging_callback=sqllogging_callback,
             deprecated=deprecated,
         )
 
@@ -275,7 +269,7 @@ def _request_decorator(func: Callable, e: ArgCollection):
 
         def get_serializer(event: ProcessEvent):
             if isinstance(e.query, serializers.BaseSerializer):
-                serializer = e.query
+                serializer = copy(e.query)
                 serializer.instance = event.get_object()
                 serializer.initial_data = event.query_data
             else:
@@ -286,7 +280,7 @@ def _request_decorator(func: Callable, e: ArgCollection):
 
         def get_serializer(event: ProcessEvent):
             if isinstance(e.body, serializers.BaseSerializer):
-                serializer = e.body
+                serializer = copy(e.body)
                 serializer.instance = event.get_object()
                 serializer.initial_data = event.body_data
             else:
@@ -318,8 +312,6 @@ def _sql_logging_decorator(func: Callable, e: ArgCollection):
         response = func(event)
         cache = []
         for query in connection.queries:
-            if e.sqllogging_callback is not None:
-                e.sqllogging_callback(query)
             sql = sqlparse.format(query["sql"], reindent=api_settings.SQL_LOGGING_REINDENT).strip()
             cache.append(f"[SQL] Time: {query['time']}")
             cache.append(Padding(sql, (0, 0, 0, 2)))
