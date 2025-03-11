@@ -135,6 +135,7 @@ def apischema(
     """
     :param permissions: The permissions needed to access the endpoint.
     :param query: The serializer used for query parameters.
+    :param parameters: The OpenAPI parameters for the endpoint.
     :param body: The serializer used for the request body.
     :param response: The OpenAPI schema for the response.
     :param responses: The OpenAPI schemas for various response codes.
