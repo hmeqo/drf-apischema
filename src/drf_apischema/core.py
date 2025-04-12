@@ -6,7 +6,7 @@ import sys
 import traceback
 from copy import copy
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence, Type, Union
 
 from django.db import connection
 from django.db import transaction as _transaction
@@ -30,7 +30,7 @@ from .response import StatusResponse
 from .settings import api_settings, with_override
 from .utils import HttpError, is_accept_json
 
-_SerializerType = Serializer | type[Serializer]
+_SerializerType = Union[Serializer, Type[Serializer]]
 
 
 @dataclass
@@ -346,7 +346,7 @@ def _excpetion_catcher(func: Callable, e: ArgCollection):
         except ValidationError as exc:
             return Response({"detail": exc.detail}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         except Exception as exc:
-            traceback.print_exception(exc)
+            traceback.print_exc()
             if is_accept_json(event.request):
                 return Response({"detail": _("Server error.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             raise exc

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from django.urls import URLPattern, URLResolver, include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
