@@ -295,6 +295,7 @@ def _request_decorator(func: Callable, e: ArgCollection):
     def wrapper(event: ProcessEvent):
         serializer = get_serializer(event)
         serializer.is_valid(raise_exception=True)
+        serializer.context["request"] = event.request
 
         event.request.serializer = serializer
         event.request.validated_data = serializer.validated_data
