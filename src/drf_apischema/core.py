@@ -6,7 +6,7 @@ import sys
 import traceback
 from copy import copy
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence, Type, Union
+from typing import Any, Callable, Iterable, Sequence
 
 from django.db import connection
 from django.db import transaction as _transaction
@@ -30,7 +30,7 @@ from .response import StatusResponse
 from .settings import api_settings, with_override
 from .utils import HttpError, is_accept_json
 
-_SerializerType = Union[Serializer, Type[Serializer]]
+_SerializerType = Serializer | type[Serializer]
 
 
 @dataclass
