@@ -21,7 +21,7 @@ class ApiSettings:
     SHOW_PERMISSIONS: bool = True
     """Show permissions in description"""
 
-    ACTION_DEFAULTS_EMPTY: bool = True
+    ACTION_DEFAULTS_EMPTY: bool = False
     """If True, request_body and response will be empty by default if the view is action decorated"""
 
 

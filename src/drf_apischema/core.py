@@ -58,6 +58,7 @@ class ProcessEvent:
 
 @dataclass
 class ArgCollection:
+    raw_func: Any = None
     func: Any = None
     cls: Any = None
     permissions: Iterable[type[BasePermission]] | None = None
@@ -76,16 +77,26 @@ class ArgCollection:
     def override(self, other: ArgCollection):
         self.func = self.func if other.func is None else other.func
         self.cls = self.cls if other.cls is None else other.cls
-        self.permissions = self.permissions if other.permissions is None else other.permissions
-        self.query = self.query if other.query is None else other.query
-        self.body = self.body if other.body is empty else other.body
+        # self.permissions = self.permissions if other.permissions is None else other.permissions
+        if other.permissions is not None:
+            raise ValueError("Permissions cannot be set after the first call")
+        # self.query = self.query if other.query is None else other.query
+        # self.body = self.body if other.body is empty else other.body
+        if other.query is not None:
+            raise ValueError("Query cannot be set after the first call")
+        if other.body is not empty:
+            raise ValueError("Body cannot be set after the first call")
         self.response = self.response if other.response is empty else other.response
         self.responses = self.responses if other.responses is empty else other.responses
         self.summary = self.summary if other.summary is None else other.summary
         self.description = self.description if other.description is None else other.description
         self.tags = self.tags if other.tags is None else other.tags
-        self.transaction = self.transaction if other.transaction is None else other.transaction
-        self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
+        # self.transaction = self.transaction if other.transaction is None else other.transaction
+        if other.transaction is not None:
+            raise ValueError("Transaction cannot be set after the first call")
+        # self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
+        if other.sqllogging is not None:
+            raise ValueError("Sqllogging cannot be set after the first call")
         self.deprecated = self.deprecated if other.deprecated is None else other.deprecated
         return self
 
@@ -165,14 +176,15 @@ def apischema(
             sqllogging=sqllogging,
             deprecated=deprecated,
         )
+        is_first_call = not hasattr(func, "argcollection")
 
-        if hasattr(func, "argcollection"):
+        if not is_first_call:
             args = getattr(func, "argcollection").override(args)
 
         _responses = _get_responses(args)
         _summary, _description = _get_summary_and_description(args)
 
-        if not hasattr(func, "argcollection"):
+        if is_first_call:
             func = _response_decorator(func, args)
             if query is not None or is_not_empty_none(body):
                 func = _request_decorator(func, args)
@@ -266,34 +278,30 @@ def _response_decorator(func: Callable, e: ArgCollection):
 
 
 def _request_decorator(func: Callable, e: ArgCollection):
-    if e.query is not None:
+    f1 = None
+    f2 = None
 
-        def get_serializer(event: ProcessEvent):
+    @functools.wraps(func)
+    def wrapper(event: ProcessEvent):
+        nonlocal f1, f2
+
+        if f1 := (e.query is not None if f1 is None else f1):
             if isinstance(e.query, serializers.BaseSerializer):
                 serializer = copy(e.query)
                 serializer.instance = event.get_object()
                 serializer.initial_data = event.query_data
             else:
                 serializer = e.query(instance=event.get_object(), data=event.query_data)
-            return serializer
-
-    elif is_not_empty_none(e.body):
-
-        def get_serializer(event: ProcessEvent):
+        elif f2 := (is_not_empty_none(e.body) if f2 is None else f2):
             if isinstance(e.body, serializers.BaseSerializer):
                 serializer = copy(e.body)
                 serializer.instance = event.get_object()
                 serializer.initial_data = event.body_data
             else:
                 serializer = e.body(instance=event.get_object(), data=event.body_data)
-            return serializer
+        else:
+            raise ValueError("query or body is required")
 
-    else:
-        raise ValueError("query or body is required")
-
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        serializer = get_serializer(event)
         serializer.is_valid(raise_exception=True)
         serializer.context["request"] = event.request
 
@@ -324,11 +332,13 @@ def _sql_logging_decorator(func: Callable, e: ArgCollection):
 
 
 def _permission_decorator(func: Callable, e: ArgCollection):
-    __permissions = [permission() for permission in (e.permissions or [])]
+    __permissions = None
 
     @functools.wraps(func)
     def wrapper(event: ProcessEvent):
-        for permission in __permissions:
+        nonlocal __permissions
+
+        for permission in (__permissions := __permissions or [permission() for permission in (e.permissions or [])]):
             if permission.has_permission(event.request, event.view):  # type: ignore
                 return func(event)
         raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
