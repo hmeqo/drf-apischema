@@ -122,7 +122,7 @@ LOCALE_PATHS = [
 
 LANGUAGES = (
     ("en", "English"),
-    ("zh-hans", "Chinese (simplified)"),
+    ("zh-Hans", "Chinese (simplified)"),
 )
 
 
