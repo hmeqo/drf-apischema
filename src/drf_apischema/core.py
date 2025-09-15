@@ -16,7 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.drainage import get_view_method_names, isolate_view_method
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.response import Response
@@ -356,6 +356,8 @@ def _excpetion_catcher(func: Callable, e: ArgCollection):
             return Response(exc.content, status=exc.status)
         except ValidationError as exc:
             return Response({"detail": exc.detail}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        except NotFound:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
             traceback.print_exc()
             if is_accept_json(event.request):

@@ -155,7 +155,7 @@ wheels = [
 
 [[package]]
 name = "drf-apischema"
-version = "0.2.6"
+version = "0.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "django" },

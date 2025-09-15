@@ -1,6 +1,6 @@
 [project]
 name = "drf-apischema"
-version = "0.2.6"
+version = "0.2.8"
 description = "API schema generator and validator for Django REST framework"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -48,4 +48,4 @@ build-backend = "hatchling.build"
 packages = ["src/drf_apischema"]
 
 [tool.django-stubs]
-django_settings_module = "tests.manage.settings"
+django_settings_module = "playground.playground.settings"
