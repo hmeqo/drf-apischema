@@ -33,7 +33,8 @@ class AutoSchema(SwaggerAutoSchema):
         if not self.overrides.get("tags"):
             class_doc = self.view.__class__.__doc__
             if class_doc:
-                tags[0] = f"{tags[0]} - {class_doc.split('\n',)[0]}"
+                title = class_doc.split("\n")[0]
+                tags[0] = f"{tags[0]} - {title}"
         tags.extend(self.overrides.get("extra_tags", []) or [])
         return tags
 
