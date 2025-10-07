@@ -1,6 +1,6 @@
 [project]
 name = "drf-apischema"
-version = "0.2.8"
+version = "0.2.9"
 description = "API schema generator and validator for Django REST framework"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,8 +37,8 @@ dependencies = [
 Repository = "https://github.com/hmeqo/drf-apischema.git"
 Issues = "https://github.com/hmeqo/drf-apischema/issues"
 
-[tool.uv]
-dev-dependencies = ["django-stubs", "djangorestframework-stubs"]
+[dependency-groups]
+dev = ["django-stubs", "djangorestframework-stubs"]
 
 [build-system]
 requires = ["hatchling"]

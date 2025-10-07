@@ -355,9 +355,9 @@ def _excpetion_catcher(func: Callable, e: ArgCollection):
         except HttpError as exc:
             return Response(exc.content, status=exc.status)
         except ValidationError as exc:
-            return Response({"detail": exc.detail}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return Response({"errors": exc.detail}, status=exc.status_code)
         except NotFound:
-            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _("Not found.")}, status=status.HTTP_404_NOT_FOUND)
         except Exception as exc:
             traceback.print_exc()
             if is_accept_json(event.request):
