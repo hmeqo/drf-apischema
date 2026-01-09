@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     # ...
     "rest_framework",
     "drf_spectacular",
+    "drf_apischema.scalar,
     # ...
 ]
 
@@ -50,7 +51,7 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Your project description",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    'SCHEMA_PATH_PREFIX': '/api',
+    'SCHEMA_PATH_PREFIX': '/api-docs',
 }
 ```
 
@@ -152,8 +153,8 @@ router.register("test", TestViewSet, basename="test")
 
 
 urlpatterns = [
-    # Auto-generate /api/schema/, /api/schema/swagger/ and /api/schema/redoc/ for documentation
-    api_path("api/", [path("", include(router.urls))])
+    # Auto-generate /api/xxx for API and /api-docs/scalar/, /api-docs/xxx for documentation
+    api_path([path("", include(router.urls))])
 ]
 ```
 

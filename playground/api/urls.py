@@ -10,6 +10,6 @@ router.register("users", UserViewSet)
 
 
 urlpatterns = [
-    # Auto-generate /api/swagger/ and /api/redoc/
-    api_path("api/", [path("", include(router.urls))])
+    # Auto-generate /api/xxx and /api-docs/xxx
+    api_path([path("", include(router.urls))])
 ]
