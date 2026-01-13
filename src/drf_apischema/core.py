@@ -23,8 +23,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import Serializer
 from rest_framework.settings import api_settings as drf_api_settings
 
-from drf_apischema.plumbing import any_success, is_action_view, is_not_empty_none, true_empty_str
-
+from .helpers import any_success, is_action_view, is_not_empty_none, true_empty_str
 from .request import ASRequest
 from .response import StatusResponse
 from .settings import api_settings, with_override
@@ -258,7 +257,7 @@ def _get_summary_and_description(e: ArgCollection):
         ]
         if permissions:
             permissions_doc = f"**Permissions:** `{'` `'.join(permissions)}`"
-            description = f"{permissions_doc}\n\n{description or ''}"
+            description = f"{description or ''}\n\n{permissions_doc}"
     return summary, description
 
 

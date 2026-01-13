@@ -3,7 +3,7 @@ from typing import Any
 from django.contrib.auth.models import User
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from drf_apischema import ASRequest, apischema, apischema_view
@@ -21,7 +21,7 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
 
     queryset = User.objects.all()
     serializer_class = UserOut
-    permission_classes = []
+    # permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
     @apischema(permissions=[IsAdminUser])

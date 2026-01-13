@@ -104,7 +104,7 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
 
     queryset = User.objects.all()
     serializer_class = UserOut
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     # Define a view that requires permissions
     @apischema(permissions=[IsAdminUser])
@@ -167,7 +167,7 @@ DRF_APISCHEMA_SETTINGS = {
     # Enable transaction wrapping for APIs
     "TRANSACTION": True,
     # Enable SQL logging
-    "SQL_LOGGING": True,
+    "SQL_LOGGING": settings.DEBUG,
     # Indent SQL queries
     "SQL_LOGGING_REINDENT": True,
     # Use method docstring as summary and description
@@ -175,7 +175,9 @@ DRF_APISCHEMA_SETTINGS = {
     # Show permissions in description
     "SHOW_PERMISSIONS": True,
     # If True, request_body and response will be empty by default if the view is action decorated
-    "ACTION_DEFAULTS_EMPTY": True,
+    "ACTION_DEFAULTS_EMPTY": False,
+    # OpenAPI URL name
+    "OPENAPI_URL_NAME" = "openapi.json"
 }
 ```
 

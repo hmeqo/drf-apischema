@@ -24,6 +24,9 @@ class ApiSettings:
     ACTION_DEFAULTS_EMPTY: bool = False
     """If True, request_body and response will be empty by default if the view is action decorated"""
 
+    OPENAPI_URL_NAME = "openapi.json"
+    """OpenAPI URL name"""
+
 
 api_settings = ApiSettings(**getattr(settings, "DRF_APISCHEMA_SETTINGS", {}))
 

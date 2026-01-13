@@ -1,7 +1,7 @@
 from django.shortcuts import render
-from django.urls import reverse_lazy
+from rest_framework.reverse import reverse
 
-OPENAPI_URL = reverse_lazy("schema")
+OPENAPI_URL = "schema"
 TITLE = "Scalar API Reference"
 JS_URL = "https://cdn.jsdelivr.net/npm/@scalar/api-reference"
 PROXY_URL = ""
@@ -10,13 +10,13 @@ FAVICON_URL = "/favicon.ico"
 
 def scalar_viewer(
     request,
-    openapi_url=None,
+    url_name=None,
     title=None,
     scalar_js_url=None,
     scalar_proxy_url=None,
     scalar_favicon_url=None,
 ):
-    final_openapi_url = openapi_url if openapi_url is not None else OPENAPI_URL
+    final_openapi_url = reverse(url_name if url_name is not None else OPENAPI_URL, request=request)
     final_title = title if title is not None else TITLE
     final_js_url = scalar_js_url if scalar_js_url is not None else JS_URL
     final_proxy_url = scalar_proxy_url if scalar_proxy_url is not None else PROXY_URL
