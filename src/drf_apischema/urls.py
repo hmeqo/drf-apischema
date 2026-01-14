@@ -7,15 +7,14 @@ from .scalar.views import scalar_viewer
 from .settings import api_settings
 
 
-def api_path(
-    urlpatterns: list[URLResolver | URLPattern],
-    prefix: str = "",
-    api_prefix: str = "api/",
-    docs_prefix: str = "api-docs/",
+def api_docs_path(
+    prefix: str = "api-docs/",
+    extra_urlpatterns: list[URLPattern | URLResolver] | None = None,
+    openapi_url_name: str | None = None,
 ):
-    openapi_url_name = api_settings.OPENAPI_URL_NAME
+    openapi_url_name = openapi_url_name or api_settings.OPENAPI_URL_NAME
 
-    docs_urlpatterns = [
+    docs_urlpatterns: list[URLPattern | URLResolver] = [
         path(f"{openapi_url_name}/", SpectacularAPIView.as_view(), name=openapi_url_name),
         path("scalar/", scalar_viewer, name="scalar", kwargs={"url_name": openapi_url_name}),
         path(
@@ -25,12 +24,7 @@ def api_path(
         ),
         path("redoc/", SpectacularRedocView.as_view(url_name=openapi_url_name), name="redoc"),
     ]
-    return path(
-        prefix,
-        include(
-            [
-                path(api_prefix, include(urlpatterns)),
-                path(docs_prefix, include(docs_urlpatterns)),
-            ]
-        ),
-    )
+    if extra_urlpatterns is not None:
+        docs_urlpatterns.extend(extra_urlpatterns)
+
+    return path(prefix, include(docs_urlpatterns))

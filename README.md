@@ -142,9 +142,8 @@ urls.py
 
 ```python
 from django.urls import include, path
+from drf_apischema.urls import api_docs_path
 from rest_framework.routers import DefaultRouter
-
-from drf_apischema.urls import api_path
 
 from .views import *
 
@@ -153,8 +152,9 @@ router.register("test", TestViewSet, basename="test")
 
 
 urlpatterns = [
-    # Auto-generate /api/xxx for API and /api-docs/scalar/, /api-docs/xxx for documentation
-    api_path([path("", include(router.urls))])
+    path("/api", include(router.urls)),
+    # Auto-generate /api-docs/xxx, include /api-docs/scalar/
+    api_docs_path(),
 ]
 ```
 

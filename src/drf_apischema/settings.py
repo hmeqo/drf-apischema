@@ -24,7 +24,7 @@ class ApiSettings:
     ACTION_DEFAULTS_EMPTY: bool = False
     """If True, request_body and response will be empty by default if the view is action decorated"""
 
-    OPENAPI_URL_NAME = "openapi.json"
+    OPENAPI_URL_NAME: str = "openapi.json"
     """OpenAPI URL name"""
 
 
