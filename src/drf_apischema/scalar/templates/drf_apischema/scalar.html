@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
     <head>
         <title>{{ title }}</title>
@@ -14,6 +14,27 @@
     </head>
     <body>
         <noscript> Scalar requires Javascript to function. Please enable it to browse the documentation. </noscript>
+        {% csrf_token %}
+        <script>
+            // Function to get CSRF token from cookies
+            window.getCsrfToken = function () {
+                const name = "csrftoken"
+                const value = `; ${document.cookie}`
+                const parts = value.split(`; ${name}=`)
+                if (parts.length === 2) return parts.pop().split(";").shift()
+                return null
+            }
+
+            // Override fetch to add CSRF token to all requests
+            window.originalFetch = window.fetch
+            window.fetch = function (input, init) {
+                const csrfToken = window.getCsrfToken()
+                if (csrfToken && input.headers) {
+                    input.headers.set("X-Csrftoken", csrfToken)
+                }
+                return window.originalFetch(input, init)
+            }
+        </script>
         <script id="api-reference" data-url="{{ openapi_url }}" data-proxy-url="{{ scalar_proxy_url }}"></script>
         <script src="{{ scalar_js_url }}"></script>
     </body>
