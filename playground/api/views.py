@@ -1,12 +1,10 @@
-from typing import Any
-
 from django.contrib.auth.models import User
-from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
 from drf_apischema import ASRequest, apischema, apischema_view
+from drf_apischema.decorator import action
 
 from .serializers import SquareOut, SquareQuery, UserOut
 
@@ -41,7 +39,7 @@ class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
 
     @apischema(query=SquareQuery, response=SquareOut)
     @action(methods=["get"], detail=False)
-    def square(self, request: ASRequest[SquareQuery]) -> Any:
+    def square(self, request: ASRequest[SquareQuery]):
         """The square of a number"""
         # The request.serializer is an instance of SquareQuery that has been validated
         # print(request.serializer)

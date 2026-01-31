@@ -6,8 +6,9 @@ import sys
 import traceback
 from copy import copy
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Awaitable, Callable, Iterable, Sequence
 
+from asgiref.sync import async_to_sync, iscoroutinefunction
 from django.db import connection
 from django.db import transaction as _transaction
 from django.http import Http404
@@ -76,11 +77,8 @@ class ArgCollection:
     def override(self, other: ArgCollection):
         self.func = self.func if other.func is None else other.func
         self.cls = self.cls if other.cls is None else other.cls
-        # self.permissions = self.permissions if other.permissions is None else other.permissions
         if other.permissions is not None:
             raise ValueError("Permissions cannot be set after the first call")
-        # self.query = self.query if other.query is None else other.query
-        # self.body = self.body if other.body is empty else other.body
         if other.query is not None:
             raise ValueError("Query cannot be set after the first call")
         if other.body is not empty:
@@ -90,25 +88,16 @@ class ArgCollection:
         self.summary = self.summary if other.summary is None else other.summary
         self.description = self.description if other.description is None else other.description
         self.tags = self.tags if other.tags is None else other.tags
-        # self.transaction = self.transaction if other.transaction is None else other.transaction
         if other.transaction is not None:
             raise ValueError("Transaction cannot be set after the first call")
-        # self.sqllogging = self.sqllogging if other.sqllogging is None else other.sqllogging
         if other.sqllogging is not None:
             raise ValueError("Sqllogging cannot be set after the first call")
         self.deprecated = self.deprecated if other.deprecated is None else other.deprecated
         return self
 
 
-def _wrap_view_method(view, method_name, decorator):
-    wrapped = decorator(isolate_view_method(view, method_name), view)
-    if wrapped:
-        setattr(view, method_name, wrapped)
-
-
 def apischema_view(**kwargs):
     def decorator(view):
-        # special case for @api_view. redirect decoration to enclosed WrappedAPIView
         if callable(view) and hasattr(view, "cls"):
             apischema_view(**kwargs)(view.cls)
             return view
@@ -126,6 +115,12 @@ def apischema_view(**kwargs):
     return decorator
 
 
+def _wrap_view_method(view, method_name, decorator):
+    wrapped = decorator(isolate_view_method(view, method_name), view)
+    if wrapped:
+        setattr(view, method_name, wrapped)
+
+
 def apischema(
     permissions: Iterable[type[BasePermission]] | None = None,
     query: Any = None,
@@ -141,7 +136,7 @@ def apischema(
     sqllogging: bool | None = None,
     deprecated: bool = False,
     **kwargs,
-) -> Callable[..., Callable[..., HttpResponseBase]]:
+) -> Callable[..., Callable[..., HttpResponseBase | Awaitable[HttpResponseBase]]]:
     """
     :param permissions: The permissions needed to access the endpoint.
     :param query: The serializer used for query parameters.
@@ -184,17 +179,9 @@ def apischema(
         _summary, _description = _get_summary_and_description(args)
 
         if is_first_call:
-            func = _response_decorator(func, args)
-            if query is not None or is_not_empty_none(body):
-                func = _request_decorator(func, args)
-            if with_override(api_settings.TRANSACTION, transaction):
-                func = _transaction.atomic(func)
-            if with_override(api_settings.SQL_LOGGING, sqllogging):
-                func = _sql_logging_decorator(func, args)
-            if permissions:
-                func = _permission_decorator(func, args)
-            func = _excpetion_catcher(func, args)
+            func = _get_wrapper(func, args)
             setattr(func, "argcollection", args)
+
         return extend_schema(
             parameters=parameters or ([args.query] if args.query else None),
             request=(None if is_action_view(args.func) else empty) if args.body is empty else args.body,
@@ -261,116 +248,127 @@ def _get_summary_and_description(e: ArgCollection):
     return summary, description
 
 
-def _response_decorator(func: Callable, e: ArgCollection):
+def _create_event(view_args, view_kwargs):
+    if hasattr(view_args[0], "request"):
+        request, view = view_args[1], view_args[0]
+    else:
+        request, view = view_args[0], None
+    return ProcessEvent(request=request, view=view, args=view_args, kwargs=view_kwargs)
+
+
+def _get_wrapper(func, args):
+    is_async = iscoroutinefunction(func)
+    use_transaction = with_override(api_settings.TRANSACTION, args.transaction)
+    use_logging = with_override(api_settings.SQL_LOGGING, args.sqllogging)
+
     @functools.wraps(func)
-    def wrapper(event: ProcessEvent) -> HttpResponseBase:
-        response = func(*event.args, **event.kwargs)
-        if response is None:
-            response = Response(status=status.HTTP_204_NO_CONTENT)
-        elif isinstance(response, HttpResponseBase):
-            response = response
-        else:
-            response = Response(response)
-        return response
+    def wrapper(*view_args, **view_kwargs):
+        event = _create_event(view_args, view_kwargs)
+        try:
+            _before_request(event, args)
+
+            if use_transaction:
+                with _transaction.atomic():
+                    response = _execute_view(func, event, is_async)
+            else:
+                response = _execute_view(func, event, is_async)
+
+            if use_logging:
+                _log_sql_queries()
+
+            return _after_request(response)
+        except Exception as e:
+            return _handle_exception(e, event)
 
     return wrapper
 
 
-def _request_decorator(func: Callable, e: ArgCollection):
-    f1 = None
-    f2 = None
+def _before_request(event: ProcessEvent, args: ArgCollection):
+    _check_permissions(event, args)
+    if args.query is not None or is_not_empty_none(args.body):
+        _validate_request(event, args)
 
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        nonlocal f1, f2
 
-        if f1 := (e.query is not None if f1 is None else f1):
-            if isinstance(e.query, serializers.BaseSerializer):
-                serializer = copy(e.query)
-                serializer.instance = event.get_object()
-                serializer.initial_data = event.query_data
-            else:
-                serializer = e.query(instance=event.get_object(), data=event.query_data)
-        elif f2 := (is_not_empty_none(e.body) if f2 is None else f2):
-            if isinstance(e.body, serializers.BaseSerializer):
-                serializer = copy(e.body)
-                serializer.instance = event.get_object()
-                serializer.initial_data = event.body_data
-            else:
-                serializer = e.body(instance=event.get_object(), data=event.body_data)
+def _execute_view(func, event, is_async):
+    if is_async:
+        return async_to_sync(func)(*event.args, **event.kwargs)
+    else:
+        return func(*event.args, **event.kwargs)
+
+
+def _after_request(response):
+    if response is None:
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+    elif isinstance(response, HttpResponseBase):
+        pass
+    else:
+        response = Response(response)
+    return response
+
+
+def _log_sql_queries():
+    import sqlparse
+    from rich import print as rprint
+    from rich.padding import Padding
+
+    cache = []
+    for query in connection.queries:
+        sql = sqlparse.format(query["sql"], reindent=api_settings.SQL_LOGGING_REINDENT).strip()
+        cache.append(f"[SQL] Time: {query['time']}")
+        cache.append(Padding(sql, (0, 0, 0, 2)))
+    rprint(*cache)
+
+
+def _check_permissions(event: ProcessEvent, args: ArgCollection):
+    if not args.permissions:
+        return
+
+    permissions = [permission() for permission in args.permissions]
+    for permission in permissions:
+        if permission.has_permission(event.request, event.view):  # type: ignore
+            return
+    raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
+
+
+def _validate_request(event: ProcessEvent, args: ArgCollection):
+    serializer = None
+    if args.query is not None:
+        if isinstance(args.query, serializers.BaseSerializer):
+            serializer = copy(args.query)
+            serializer.instance = event.get_object()
+            serializer.initial_data = event.query_data
         else:
-            raise ValueError("query or body is required")
+            serializer = args.query(instance=event.get_object(), data=event.query_data)
 
+    elif is_not_empty_none(args.body):
+        if isinstance(args.body, serializers.BaseSerializer):
+            serializer = copy(args.body)
+            serializer.instance = event.get_object()
+            serializer.initial_data = event.body_data
+        else:
+            serializer = args.body(instance=event.get_object(), data=event.body_data)
+    else:
+        return
+
+    if serializer:
         serializer.is_valid(raise_exception=True)
         serializer.context["request"] = event.request
 
         event.request.serializer = serializer
         event.request.validated_data = serializer.validated_data
-        return func(event)
-
-    return wrapper
 
 
-def _sql_logging_decorator(func: Callable, e: ArgCollection):
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        import sqlparse
-        from rich import print as rprint
-        from rich.padding import Padding
+def _handle_exception(exc: Exception, event: ProcessEvent):
+    if isinstance(exc, Http404):
+        raise exc
+    if isinstance(exc, HttpError):
+        return Response(exc.content, status=exc.status)
+    if isinstance(exc, ValidationError):
+        return Response({"errors": exc.detail}, status=exc.status_code)
+    if isinstance(exc, NotFound):
+        return Response({"detail": _("Not found.")}, status=status.HTTP_404_NOT_FOUND)
 
-        response = func(event)
-        cache = []
-        for query in connection.queries:
-            sql = sqlparse.format(query["sql"], reindent=api_settings.SQL_LOGGING_REINDENT).strip()
-            cache.append(f"[SQL] Time: {query['time']}")
-            cache.append(Padding(sql, (0, 0, 0, 2)))
-        rprint(*cache)
-        return response
-
-    return wrapper
-
-
-def _permission_decorator(func: Callable, e: ArgCollection):
-    __permissions = None
-
-    @functools.wraps(func)
-    def wrapper(event: ProcessEvent):
-        nonlocal __permissions
-
-        for permission in (__permissions := __permissions or [permission() for permission in (e.permissions or [])]):
-            if permission.has_permission(event.request, event.view):  # type: ignore
-                return func(event)
-        raise HttpError(_("You do not have permission to perform this action."), status=status.HTTP_403_FORBIDDEN)
-
-    return wrapper
-
-
-def _excpetion_catcher(func: Callable, e: ArgCollection):
-    def handle_exception(event: ProcessEvent):
-        try:
-            response = func(event)
-        except Http404 as exc:
-            raise exc
-        except HttpError as exc:
-            return Response(exc.content, status=exc.status)
-        except ValidationError as exc:
-            return Response({"errors": exc.detail}, status=exc.status_code)
-        except NotFound:
-            return Response({"detail": _("Not found.")}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as exc:
-            traceback.print_exc()
-            if is_accept_json(event.request):
-                return Response({"detail": _("Server error.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            raise exc
-        return response
-
-    @functools.wraps(func)
-    def default_wrapper(*args, **kwds):
-        if hasattr(args[0], "request"):
-            request, view = args[1], args[0]
-        else:
-            request, view = args[0], None
-        event = ProcessEvent(request=request, view=view, args=args, kwargs=kwds)
-        return handle_exception(event)
-
-    return default_wrapper
+    traceback.print_exc()
+    if is_accept_json(event.request):
+        return Response({"detail": _("Server error.")}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    raise exc
